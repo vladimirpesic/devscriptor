@@ -1,0 +1,281 @@
+name: LSP mirror
+
+# Packages every language server on each platform the mirror serves, checks
+# that the packages install through Devscriptor's own downloader, and publishes
+# them together as one release, lsp-servers-<date>-<commit> (docs/building.md). Run by
+# hand when the servers the registry names change; the release is pinned in
+# crates/lsp/src/manager/mirror.json afterwards (scripts/pin-lsp-mirror.py).
+#
+# Nothing is public until every platform's packages are in the draft and the
+# pin of all of them passes the mirror tests. When a platform fails, re-run its
+# failed job: it uploads to the same draft, replacing what it uploaded before.
+# A re-run uses the commit its run started from, so a fix to the scripts needs
+# a new run, which replaces the draft.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lsp-mirror
+  cancel-in-progress: false
+
+# bash with pipefail: a step's output goes through tee, which must not hide
+# the step's failure.
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  draft:
+    name: Draft the release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.draft.outputs.tag }}
+    steps:
+      - name: Create the draft
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          day=$(date -u +%Y-%m-%d)
+          commit=${GITHUB_SHA::7}
+          # Named after the commit it is packaged from as well as the day: the
+          # name of a published release that is deleted stays taken for good
+          # (GitHub retires an immutable release's tag).
+          tag=lsp-servers-$day-$commit
+          title="Language servers $day ($commit)"
+          # Whether each release of the tag $1 is a draft: true, false, or
+          # nothing when there is none.
+          drafts() { gh release list --limit 1000 --json tagName,isDraft --jq ".[] | select(.tagName == \"$1\") | .isDraft"; }
+          # A published release is never changed; a draft, which only an
+          # earlier run of this workflow leaves and no one else sees, is
+          # replaced.
+          if grep -qx false <<<"$(drafts "$tag")"; then
+            echo "::error::$tag is published: a new release of the mirror is packaged from a new commit"
+            exit 1
+          fi
+          while grep -qx true <<<"$(drafts "$tag")"; do
+            gh release delete "$tag" --yes
+            echo "::notice::Deleted the draft of $tag an earlier run left"
+          done
+          gh release create "$tag" --draft --target "$GITHUB_SHA" \
+            --title "$title" \
+            --notes "The language servers Devscriptor installs from its mirror, packaged on each platform at $GITHUB_SHA. Each platform's manifest-<platform>.json names its archives, which sha256sums-<platform>.txt also lists; Devscriptor pins this release in crates/lsp/src/manager/mirror.json and checks each archive against the SHA-256 it pins. Each archive holds its server's license files under LICENSES/."
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: ${{ matrix.platform }}
+    needs: draft
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x86_64, os: ubuntu-latest, jobs: 4 }
+          - { platform: linux-aarch64, os: ubuntu-24.04-arm, jobs: 4 }
+          - { platform: macos-x86_64, os: macos-26-intel, jobs: 4 }
+          - { platform: macos-aarch64, os: macos-latest, jobs: 3 }
+          - { platform: windows-x86_64, os: windows-latest, jobs: 4 }
+    env:
+      TAG: ${{ needs.draft.outputs.tag }}
+      SCRIPTS: scripts/${{ matrix.platform }}
+      CARGO_BUILD_JOBS: ${{ matrix.jobs }}
+    steps:
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+
+      # The toolchains the downloads install servers with, the same on every
+      # runner. ruby-lsp's native extensions are built against Ruby's headers,
+      # and on Windows with the MSYS2 toolchain, which setup-ruby brings; the
+      # macOS downloader takes the runner's Ruby (3.4): setup-ruby lists no
+      # Intel macOS runner.
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - if: runner.os != 'macOS'
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+      - uses: coursier/setup-action@v3
+
+      # The rest of what a packaging machine needs (Homebrew's bash 4 and PHP
+      # on macOS). The Windows installer works through winget, which the
+      # runner has not: the runner has Java, Python, .NET and PHP, the steps
+      # above set up Go, Node.js, Ruby and Coursier, and the download fetches
+      # the Dart SDK, which is dart-ls, itself.
+      - name: Install the dependencies
+        id: dependencies
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo env "PATH=$PATH" bash "$SCRIPTS/install-dependencies.sh"
+          else
+            bash "$SCRIPTS/install-dependencies.sh"
+          fi 2>&1 | tee "$RUNNER_TEMP/dependencies.log"
+
+      # The workflow's token, for the downloads' requests of GitHub's API,
+      # which the scripts keep from the installers they run.
+      - name: Download the servers
+        id: download
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            pwsh -NoProfile -File "$SCRIPTS/download-lsp-servers.ps1"
+          else
+            bash "$SCRIPTS/download-lsp-servers.sh"
+          fi 2>&1 | tee "$RUNNER_TEMP/download.log"
+      - name: Package them
+        id: package
+        shell: bash
+        run: |
+          {
+            if [ "$RUNNER_OS" = Windows ]; then
+              pwsh -NoProfile -File "$SCRIPTS/package-lsp-servers.ps1"
+            else
+              bash "$SCRIPTS/package-lsp-servers.sh"
+            fi
+            ls -l "$SCRIPTS/lsp-packages"
+          } 2>&1 | tee "$RUNNER_TEMP/package.log"
+
+      # The packages, pinned as a user's build would pin them and served from
+      # a local web server, installed one by one from the mirror alone.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check that the packages install
+        id: check
+        shell: bash
+        run: |
+          py=$(command -v python3 || command -v python)
+          "$py" scripts/pin-lsp-mirror.py "$TAG" "$SCRIPTS/lsp-packages/manifest-${{ matrix.platform }}.json"
+          # The packages are every server the registry installs here, at the
+          # builds it pins: one the download could not fetch is missing.
+          status=0
+          cargo test --locked -p devscriptor-lsp --lib -- --exact \
+            manager::mirror::tests::the_pinned_manifests_match_the_registry 2>&1 |
+            tee "$RUNNER_TEMP/check.log" || status=$?
+          if [ "$status" = 0 ]; then
+            "$py" -m http.server 8765 --bind 127.0.0.1 --directory "$SCRIPTS/lsp-packages" > "$RUNNER_TEMP/http.log" 2>&1 &
+            server=$!
+            for _ in $(seq 30); do
+              curl -fsS -o /dev/null http://127.0.0.1:8765/ && break
+              sleep 1
+            done
+            DEVSCRIPTOR_LSP_MIRROR_URL=http://127.0.0.1:8765 \
+              cargo test --locked -p devscriptor-lsp --test mirror_packages -- --ignored --nocapture 2>&1 |
+              tee -a "$RUNNER_TEMP/check.log" || status=$?
+            kill "$server" || true
+          fi
+          git checkout -- crates/lsp/src/manager/mirror.json
+          exit "$status"
+
+      - name: Upload to the draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "$SCRIPTS"/lsp-packages/* --clobber
+
+      # The failed step's log as annotations, which the checks API serves
+      # without the log.
+      - name: Report failures
+        if: failure()
+        shell: bash
+        env:
+          DEPENDENCIES: ${{ steps.dependencies.outcome }}
+          DOWNLOAD: ${{ steps.download.outcome }}
+          PACKAGE: ${{ steps.package.outcome }}
+          CHECK: ${{ steps.check.outcome }}
+        run: |
+          py=$(command -v python3 || command -v python)
+          report() { "$py" .github/scripts/annotate-failures.py "${{ matrix.platform }} $1" "$RUNNER_TEMP/$1.log"; }
+          if [ "$DEPENDENCIES" = failure ]; then report dependencies; fi
+          if [ "$DOWNLOAD" = failure ]; then report download; fi
+          if [ "$PACKAGE" = failure ]; then report package; fi
+          # A missing package goes back to the download, whose summary says why.
+          if [ "$CHECK" = failure ]; then report check; report download; fi
+
+  publish:
+    name: Publish
+    needs: [draft, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.draft.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Every platform's manifest, pinned together, passes the tests a pinned
+      # release must: every server the registry installs on every platform, at
+      # the builds it pins, checksummed.
+      - name: Pin every platform's packages
+        id: pin
+        run: |
+          {
+            gh release download "$TAG" --pattern 'manifest-*.json' --dir "$RUNNER_TEMP/manifests"
+            python3 scripts/pin-lsp-mirror.py "$TAG" "$RUNNER_TEMP"/manifests/*.json
+            cargo test --locked -p devscriptor-lsp --lib manager::mirror
+          } 2>&1 | tee "$RUNNER_TEMP/pin.log"
+      - name: Report failures
+        if: failure() && steps.pin.outcome == 'failure'
+        run: python3 .github/scripts/annotate-failures.py "Pin" "$RUNNER_TEMP/pin.log"
+      - name: Check the draft holds every archive the manifests name
+        run: |
+          gh release view "$TAG" --json assets --jq '.assets[].name' | sort > "$RUNNER_TEMP/assets"
+          jq -r '.platforms[].servers[].filename' crates/lsp/src/manager/mirror.json | sort > "$RUNNER_TEMP/named"
+          missing=$(comm -13 "$RUNNER_TEMP/assets" "$RUNNER_TEMP/named")
+          if [ -n "$missing" ]; then
+            echo "::error::The draft lacks $(echo "$missing" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "$(wc -l < "$RUNNER_TEMP/named") archives"
+
+      - name: Publish the release
+        run: gh release edit "$TAG" --draft=false --latest=false
+      # The VS Code extension's update check reads the latest release.
+      # Until a Devscriptor release is published, GitHub takes the newest
+      # release for the latest, whatever it was published as.
+      - name: Check the latest release is still Devscriptor's
+        run: |
+          latest=$(gh release view --json tagName --jq .tagName)
+          echo "latest release: $latest"
+          if gh release list --limit 1000 --exclude-drafts --json tagName --jq '.[].tagName' | grep -q '^v'; then
+            [[ "$latest" == v* ]] || { echo "::error::The latest release is $latest, not Devscriptor's"; exit 1; }
+          else
+            echo "::notice::No Devscriptor release is published yet: until one is, GitHub takes $latest for the latest."
+          fi
+      - name: Say how to pin it
+        run: |
+          {
+            echo "Published [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG). Pin it:"
+            echo
+            echo '```'
+            echo "scripts/pin-lsp-mirror.py $TAG"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

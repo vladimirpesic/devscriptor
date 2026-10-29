@@ -1,0 +1,65 @@
+[package]
+name = "devscriptor-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "MCP server for devscriptor"
+repository.workspace = true
+readme = "../../docs/mcp.md"
+keywords = ["mcp", "model-context-protocol", "code-analysis", "ai-tools"]
+categories = ["development-tools", "network-programming"]
+
+# The standalone development server. Deliberately NOT named `devscriptor-mcp`: that is
+# the crate name, and a binary sharing it would be a second program serving a different
+# tool count (32 core here, versus 75 from `devscriptor mcp`) under one name.
+[[bin]]
+name = "devscriptor-mcp-standalone"
+path = "src/main.rs"
+# The binary is the rmcp server.
+required-features = ["rmcp-sdk"]
+
+[features]
+default = ["rmcp-sdk", "devscriptor-core/full-lang", "devscriptor-core/model-download"]
+rmcp-sdk = ["dep:rmcp"]
+lsp = ["dep:devscriptor-lsp", "rmcp-sdk"]
+slow-tests = []
+
+[dependencies]
+devscriptor-core = { path = "../core", default-features = false }
+# `net`: the socket `devscriptor serve` listens on, one MCP session per connection.
+tokio = { workspace = true, features = ["net"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+dirs = { workspace = true }
+dunce = { workspace = true }
+futures = { workspace = true }
+similar = { workspace = true }
+parking_lot = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+# rmcp SDK dependencies
+rmcp = { workspace = true, features = ["transport-io"], optional = true }
+
+# LSP module dependency
+devscriptor-lsp = { path = "../lsp", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+# `user`: the daemon serves only sessions of the user it runs as; `signal`: a
+# client stops a daemon of another version.
+nix = { workspace = true, features = ["user", "signal"] }
+
+[target.'cfg(windows)'.dependencies]
+# Which process serves a pipe, and which file a handle is: a client connects
+# only to its user's daemon, and the daemon's lock is the file at its path.
+# tokio's `net` enables these features already.
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Pipes"] }
+
+[dev-dependencies]
+rusqlite = { workspace = true }
+tempfile = { workspace = true }

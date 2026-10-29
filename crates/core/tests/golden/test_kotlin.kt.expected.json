@@ -1,0 +1,18 @@
+{
+  "file": "test_kotlin.kt",
+  "language": "kotlin",
+  "min_functions": 40,
+  "min_classes": 21,
+  "min_enums": 1,
+  "min_interfaces": 2,
+  "min_type_aliases": 0,
+  "min_total_entities": 67,
+  "observed": {
+    "functions": 48,
+    "classes": 25,
+    "enums": 2,
+    "interfaces": 3,
+    "type_aliases": 0,
+    "total": 79
+  }
+}

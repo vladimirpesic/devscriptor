@@ -1,0 +1,18 @@
+{
+  "file": "test_go.go",
+  "language": "go",
+  "min_functions": 18,
+  "min_classes": 0,
+  "min_enums": 0,
+  "min_interfaces": 1,
+  "min_type_aliases": 1,
+  "min_total_entities": 26,
+  "observed": {
+    "functions": 22,
+    "classes": 0,
+    "enums": 0,
+    "interfaces": 2,
+    "type_aliases": 2,
+    "total": 31
+  }
+}

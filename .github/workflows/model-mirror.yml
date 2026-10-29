@@ -1,0 +1,87 @@
+name: Model mirror
+
+# Publishes the embedding model's files, as Devscriptor pins them, as the
+# release Devscriptor downloads them from when Hugging Face cannot be reached
+# (docs/building.md). Run by hand, once for each revision model_fetch.rs pins:
+# the release is named after the revision, and never changes once published. A
+# draft of it that a failed run left is replaced.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# bash with pipefail, so that a failure in a pipe fails its step.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Name the release
+        id: release
+        run: |
+          tag=$(sed -n 's/^const MODEL_MIRROR_RELEASE: &str = "\(.*\)";$/\1/p' crates/core/src/embeddings/model_fetch.rs)
+          if [ -z "$tag" ]; then
+            echo "::error::model_fetch.rs names no MODEL_MIRROR_RELEASE"
+            exit 1
+          fi
+          # A published release is never changed; a draft of it, which only an
+          # earlier run of this workflow leaves and no one else sees, is
+          # replaced.
+          drafts=$(gh release list --limit 1000 --json tagName,isDraft --jq ".[] | select(.tagName == \"$tag\") | .isDraft")
+          if grep -qx false <<<"$drafts"; then
+            echo "::error::$tag is published."
+            exit 1
+          fi
+          while grep -qx true <<<"$drafts"; do
+            gh release delete "$tag" --yes
+            echo "::notice::Deleted the draft of $tag an earlier run left"
+            drafts=$(gh release list --limit 1000 --json tagName,isDraft --jq ".[] | select(.tagName == \"$tag\") | .isDraft")
+          done
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # The script fetches the revision model_fetch.rs pins and checks each
+      # file against the SHA-256 it pins. The release holds the files side by
+      # side, as Devscriptor asks the mirror for them.
+      - name: Stage the files
+        run: |
+          DEVSCRIPTOR_MODEL_DIR="$RUNNER_TEMP/model" bash scripts/download-embedding-model.sh
+          mkdir "$RUNNER_TEMP/assets"
+          find "$RUNNER_TEMP/model" -type f -exec mv {} "$RUNNER_TEMP/assets/" \;
+          cd "$RUNNER_TEMP/assets"
+          sha256sum -- * > ../sha256sums.txt
+          mv ../sha256sums.txt .
+          cat sha256sums.txt
+
+      - name: Publish the release
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh release create "$TAG" "$RUNNER_TEMP"/assets/* \
+            --target "$GITHUB_SHA" --latest=false \
+            --title "Embedding model (jina-embeddings-v2-base-code ${TAG##*-})" \
+            --notes "The files of [jinaai/jina-embeddings-v2-base-code](https://huggingface.co/jinaai/jina-embeddings-v2-base-code) at revision ${TAG##*-} (Apache-2.0), which Devscriptor downloads from here when Hugging Face cannot be reached. Devscriptor checks each file against the SHA-256 it pins."
+
+      # The VS Code extension's update check reads the latest release.
+      # Until a Devscriptor release is published, GitHub takes the newest
+      # release for the latest, whatever it was published as.
+      - name: Check the latest release is still Devscriptor's
+        run: |
+          latest=$(gh release view --json tagName --jq .tagName)
+          echo "latest release: $latest"
+          if gh release list --limit 1000 --exclude-drafts --json tagName --jq '.[].tagName' | grep -q '^v'; then
+            [[ "$latest" == v* ]] || { echo "::error::The latest release is $latest, not Devscriptor's"; exit 1; }
+          else
+            echo "::notice::No Devscriptor release is published yet: until one is, GitHub takes $latest for the latest."
+          fi

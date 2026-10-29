@@ -1,0 +1,9 @@
+{
+    "C_Cpp.errorSquiggles": "disabled",
+    "C_Cpp.intelliSenseCacheSize": 5120,
+    "files.associations": {
+        "*.cu": "cuda-cpp"
+    },
+    "git.ignoreLimitWarning": true,
+    "r.lsp.promptToInstall": false
+}

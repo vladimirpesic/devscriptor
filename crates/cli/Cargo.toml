@@ -1,0 +1,55 @@
+[package]
+name = "devscriptor-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Command-line interface for devscriptor"
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["cli", "code-analysis", "developer-tools", "static-analysis"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "devscriptor_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "devscriptor"
+path = "src/main.rs"
+
+[dependencies]
+devscriptor-core = { path = "../core", default-features = false }
+devscriptor-lsp = { path = "../lsp", optional = true }
+devscriptor-mcp = { path = "../mcp", optional = true }
+clap = { workspace = true }
+indicatif = { workspace = true }
+console = { workspace = true }
+dialoguer = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+num_cpus = { workspace = true }
+walkdir = { workspace = true }
+serde = { workspace = true }
+tempfile = { workspace = true }
+dirs = { workspace = true }
+dunce = { workspace = true }
+sysinfo = { workspace = true }
+xxhash-rust = { workspace = true }
+futures = { workspace = true }
+
+[features]
+default = ["devscriptor-core/full-lang", "devscriptor-core/model-download", "lsp", "mcp"]
+lsp = ["dep:devscriptor-lsp"]
+mcp = ["dep:devscriptor-mcp", "devscriptor-mcp/lsp"]
+
+[target.'cfg(unix)'.dependencies]
+# `process`: `devscriptor mcp` starts the workspace's daemon in a session of its own.
+nix = { workspace = true }
+
+[dev-dependencies]
+rusqlite = { workspace = true }
+tempfile = { workspace = true }

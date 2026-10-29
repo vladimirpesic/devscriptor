@@ -1,0 +1,167 @@
+[package]
+name = "devscriptor-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Core library for code analysis - parsing, database, and analysis engine"
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["code-analysis", "parsing", "tree-sitter", "static-analysis", "developer-tools"]
+categories = ["development-tools", "parsing", "database"]
+
+[dependencies]
+# Core parsing
+tree-sitter = { workspace = true }
+
+# Tree-sitter language parsers (optional — enabled via feature flags)
+tree-sitter-bash = { workspace = true, optional = true }
+tree-sitter-typescript = { workspace = true, optional = true }
+tree-sitter-c = { workspace = true, optional = true }
+tree-sitter-c-sharp = { workspace = true, optional = true }
+tree-sitter-cpp = { workspace = true, optional = true }
+tree-sitter-cuda = { workspace = true, optional = true }
+tree-sitter-dart = { workspace = true, optional = true }
+tree-sitter-fsharp = { workspace = true, optional = true }
+tree-sitter-go = { workspace = true, optional = true }
+tree-sitter-graphql = { workspace = true, optional = true }
+tree-sitter-html = { workspace = true, optional = true }
+tree-sitter-java = { workspace = true, optional = true }
+tree-sitter-javascript = { workspace = true, optional = true }
+tree-sitter-kotlin-ng = { workspace = true, optional = true }
+tree-sitter-objc = { workspace = true, optional = true }
+tree-sitter-php = { workspace = true, optional = true }
+tree-sitter-python = { workspace = true, optional = true }
+tree-sitter-ruby = { workspace = true, optional = true }
+tree-sitter-rust = { workspace = true, optional = true }
+tree-sitter-scala = { workspace = true, optional = true }
+tree-sitter-sequel = { workspace = true, optional = true }
+tree-sitter-solidity = { workspace = true, optional = true }
+tree-sitter-svelte-next = { workspace = true, optional = true }
+tree-sitter-swift = { workspace = true, optional = true }
+tree-sitter-vb-dotnet = { workspace = true, optional = true }
+tree-sitter-vue-next = { workspace = true, optional = true }
+
+# Database
+rusqlite = { workspace = true }
+sqlite-vec = { workspace = true }
+r2d2 = { workspace = true }
+r2d2_sqlite = { workspace = true }
+
+# Embeddings — pure-Rust tract + tokenizers (see workspace Cargo.toml).
+tract-onnx = { workspace = true }
+tract-linalg = { workspace = true }
+tokenizers = { workspace = true }
+
+# Model downloading. Inherit the workspace reqwest (no default TLS, so neither
+# native-tls/openssl nor aws-lc is pulled in); only `blocking` is added here.
+# rustls + webpki-roots build the TLS configuration the client is given.
+reqwest = { workspace = true, features = ["blocking"], optional = true }
+rustls = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
+indicatif = { workspace = true, optional = true }
+hex = { version = "0.4", optional = true }
+
+# Async & Concurrency
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+
+# File watching
+notify = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# Logging/tracing
+tracing = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+time = { workspace = true }
+memmap2 = { workspace = true }
+parking_lot = { workspace = true }
+moka = { workspace = true }
+regex = { workspace = true }
+globset = { workspace = true }
+walkdir = { workspace = true }
+ignore = { workspace = true }
+dirs = { workspace = true }
+dunce = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# CLI interop (ValueEnum support — zero runtime cost when unused)
+clap = { workspace = true }
+
+# Cryptography
+sha2 = { workspace = true }
+xxhash-rust = { workspace = true }
+
+# System
+num_cpus = { workspace = true }
+sysinfo = { workspace = true }
+libc = { workspace = true }
+
+[features]
+default = ["full-lang"]
+model-download = ["dep:reqwest", "dep:rustls", "dep:webpki-roots", "dep:indicatif", "dep:hex"]
+slow-tests = []
+
+# Individual language features
+lang-bash = ["dep:tree-sitter-bash"]
+lang-c = ["dep:tree-sitter-c"]
+lang-c-sharp = ["dep:tree-sitter-c-sharp"]
+lang-cpp = ["dep:tree-sitter-cpp"]
+lang-cuda = ["dep:tree-sitter-cuda"]
+lang-dart = ["dep:tree-sitter-dart"]
+lang-fsharp = ["dep:tree-sitter-fsharp"]
+lang-go = ["dep:tree-sitter-go"]
+lang-graphql = ["dep:tree-sitter-graphql"]
+lang-html = ["dep:tree-sitter-html"]
+lang-java = ["dep:tree-sitter-java"]
+lang-javascript = ["dep:tree-sitter-javascript"]
+lang-typescript = ["dep:tree-sitter-typescript"]
+lang-kotlin = ["dep:tree-sitter-kotlin-ng"]
+lang-objc = ["dep:tree-sitter-objc"]
+lang-php = ["dep:tree-sitter-php"]
+lang-python = ["dep:tree-sitter-python"]
+lang-ruby = ["dep:tree-sitter-ruby"]
+lang-rust = ["dep:tree-sitter-rust"]
+lang-scala = ["dep:tree-sitter-scala"]
+lang-sql = ["dep:tree-sitter-sequel"]
+lang-solidity = ["dep:tree-sitter-solidity"]
+lang-svelte = ["dep:tree-sitter-svelte-next"]
+lang-swift = ["dep:tree-sitter-swift"]
+lang-vb = ["dep:tree-sitter-vb-dotnet"]
+lang-vue = ["dep:tree-sitter-vue-next"]
+
+# Meta-feature: enable all language parsers
+full-lang = [
+    "lang-bash", "lang-c", "lang-c-sharp", "lang-cpp", "lang-cuda",
+    "lang-dart", "lang-fsharp", "lang-go", "lang-graphql", "lang-html",
+    "lang-java", "lang-javascript", "lang-kotlin", "lang-objc", "lang-php",
+    "lang-python", "lang-ruby", "lang-rust", "lang-scala", "lang-sql",
+    "lang-solidity", "lang-svelte", "lang-swift", "lang-typescript",
+    "lang-vb", "lang-vue",
+]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mach2 = "0.7"
+
+[dev-dependencies]
+# The fixture server and its client speak over a Unix socket, so the test build
+# needs tokio's `net`. Scoped to dev-dependencies rather than added to the
+# workspace feature list: nothing in the shipped binary opens a socket, and the
+# whole `cargo test -p devscriptor-core` run fails to compile without it.
+tokio = { workspace = true, features = ["net"] }
+tempfile = { workspace = true }
+filetime = { workspace = true }
+# The tests and examples read counts as `u64`/`usize`, which rusqlite only
+# converts (checked) with `fallible_uint`; the library itself reads `i64`.
+rusqlite = { workspace = true, features = ["fallible_uint"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
