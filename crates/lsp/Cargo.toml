@@ -1,0 +1,86 @@
+[package]
+name = "devscriptor-lsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "LSP module for Devscriptor providing code intelligence through MCP tools"
+repository.workspace = true
+readme = "../../docs/lsp.md"
+keywords = ["lsp", "language-server", "code-intelligence", "mcp", "devscriptor"]
+categories = ["development-tools", "text-editors"]
+
+[features]
+default = ["lsp"]
+lsp = []
+
+[dependencies]
+# Async runtime
+# Workspace tokio already provides process/io-std/signal/…; lsp only adds
+# parking_lot (faster mutexes for the long-lived LSP runtime).
+tokio = { workspace = true, features = ["parking_lot"] }
+
+# LSP protocol types
+lsp-types = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Logging/tracing
+tracing = { workspace = true }
+
+# File system
+walkdir = { workspace = true }
+ignore = { workspace = true }
+glob = { workspace = true }
+
+# Path handling
+dirs = { workspace = true }
+dunce = { workspace = true }
+
+# Regex for pattern matching
+regex = { workspace = true }
+
+# Async utilities
+futures = { workspace = true }
+
+# A temporary directory of its own for each server
+tempfile = { workspace = true }
+
+# HTTP client for downloading servers, and the TLS configuration it is given
+reqwest = { workspace = true, features = ["stream"] }
+rustls = { workspace = true }
+webpki-roots = { workspace = true }
+
+# Async compression
+async-compression = { workspace = true, features = ["gzip", "tokio"] }
+
+# Archive extraction (Zip-Slip / Tar-Slip safe)
+flate2 = { workspace = true }
+tar = { workspace = true }
+zip = { workspace = true }
+
+# Process lookup
+which = { workspace = true }
+
+# Checksum verification
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+# URI percent-encoding
+percent-encoding = "2"
+
+# Concurrency primitives
+parking_lot = { workspace = true }
+
+# Process management (Unix only for kill)
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, features = ["signal", "process"] }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true, features = ["env-filter"] }

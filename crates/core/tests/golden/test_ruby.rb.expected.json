@@ -1,0 +1,18 @@
+{
+  "file": "test_ruby.rb",
+  "language": "ruby",
+  "min_functions": 45,
+  "min_classes": 14,
+  "min_enums": 0,
+  "min_interfaces": 0,
+  "min_type_aliases": 0,
+  "min_total_entities": 67,
+  "observed": {
+    "functions": 54,
+    "classes": 17,
+    "enums": 0,
+    "interfaces": 0,
+    "type_aliases": 0,
+    "total": 79
+  }
+}

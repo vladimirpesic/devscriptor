@@ -1,0 +1,289 @@
+# Example LSP configuration for Devscriptor
+#
+# Place this file as `devscriptor-lsp.toml` in your project root
+# or set DEVSCRIPTOR_LSP_CONFIG to point to your config file.
+#
+# This example covers all 21 supported languages.
+
+[workspace]
+# Root directories for the workspace
+roots = ["."]
+
+# Position encoding: "utf_16" (default) or "utf_8"
+position_encoding = "utf_16"
+
+# Maximum depth for searching project markers
+heuristics_max_depth = 3
+
+# =============================================================================
+# Tier 1: Core Languages
+# =============================================================================
+
+# Rust
+[[lsp_servers]]
+language_id = "rust"
+command = "rust-analyzer"
+extensions = ["rs"]
+heuristics = { markers = ["Cargo.toml", "Cargo.lock"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# Python
+[[lsp_servers]]
+language_id = "python"
+command = "pyright-langserver"
+args = ["--stdio"]
+extensions = ["py", "pyw", "pyi"]
+heuristics = { markers = ["pyproject.toml", "setup.py", "requirements.txt"], max_depth = 3 }
+
+[lsp_servers.initialization_options]
+settings = { python = { analysis = { typeCheckingMode = "basic" } } }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# TypeScript / JavaScript
+[[lsp_servers]]
+language_id = "typescript"
+command = "typescript-language-server"
+args = ["--stdio"]
+extensions = ["ts", "tsx", "js", "jsx"]
+heuristics = { markers = ["package.json", "tsconfig.json"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# Go
+[[lsp_servers]]
+language_id = "go"
+command = "gopls"
+extensions = ["go"]
+heuristics = { markers = ["go.mod", "go.sum"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# C / C++ / CUDA
+[[lsp_servers]]
+language_id = "cpp"
+command = "clangd"
+args = ["--background-index"]
+extensions = ["c", "cpp", "cc", "cxx", "h", "hpp", "cu", "cuh"]
+heuristics = { markers = ["compile_commands.json", "CMakeLists.txt"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# =============================================================================
+# Tier 2: Web Frontend
+# =============================================================================
+
+# Vue
+[[lsp_servers]]
+language_id = "vue"
+command = "vue-language-server"
+args = ["--stdio"]
+extensions = ["vue"]
+heuristics = { markers = ["vite.config.*", "nuxt.config.*"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# Svelte
+[[lsp_servers]]
+language_id = "svelte"
+command = "svelte-language-server"
+args = ["--stdio"]
+extensions = ["svelte"]
+heuristics = { markers = ["svelte.config.*"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# HTML
+[[lsp_servers]]
+language_id = "html"
+command = "html-languageserver"
+args = ["--stdio"]
+extensions = ["html", "htm"]
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# GraphQL
+[[lsp_servers]]
+language_id = "graphql"
+command = "graphql-language-service"
+args = ["server", "--method=stream"]
+extensions = ["graphql", "gql"]
+heuristics = { markers = [".graphqlrc", "codegen.yml"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# =============================================================================
+# Tier 3: JVM Languages
+# =============================================================================
+
+# Java. The property keeps jdtls's `.project`, `.classpath` and `.settings/`
+# out of the project.
+[[lsp_servers]]
+language_id = "java"
+command = "jdtls"
+args = ["--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false"]
+extensions = ["java"]
+heuristics = { markers = ["pom.xml", "build.gradle"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# Kotlin (JetBrains' Kotlin LSP). Add `--system-path=<dir>` to keep its caches
+# and indexes in <dir>; without it, they go to a new temporary directory at
+# every start.
+[[lsp_servers]]
+language_id = "kotlin"
+command = "kotlin-lsp"
+args = ["--stdio"]
+extensions = ["kt", "kts"]
+heuristics = { markers = ["build.gradle.kts"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# Scala
+[[lsp_servers]]
+language_id = "scala"
+command = "metals"
+extensions = ["scala", "sc"]
+heuristics = { markers = ["build.sbt"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# =============================================================================
+# Tier 4: Microsoft Ecosystem
+# =============================================================================
+
+# C# / VB.NET
+[[lsp_servers]]
+language_id = "csharp"
+command = "csharp-ls"
+extensions = ["cs", "vb"]
+heuristics = { markers = ["*.csproj", "*.sln"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# F#
+[[lsp_servers]]
+language_id = "fsharp"
+command = "fsautocomplete"
+args = ["--background-service-enabled"]
+extensions = ["fs", "fsx", "fsi"]
+heuristics = { markers = ["*.fsproj", "*.sln"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# =============================================================================
+# Tier 5: Mobile / Systems
+# =============================================================================
+
+# Swift / Objective-C
+[[lsp_servers]]
+language_id = "swift"
+command = "sourcekit-lsp"
+extensions = ["swift", "m", "mm"]
+heuristics = { markers = ["Package.swift", "*.xcodeproj"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# Dart
+[[lsp_servers]]
+language_id = "dart"
+command = "dart"
+args = ["language-server", "--protocol=lsp"]
+extensions = ["dart"]
+heuristics = { markers = ["pubspec.yaml"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# =============================================================================
+# Tier 6: Other Languages
+# =============================================================================
+
+# Ruby
+[[lsp_servers]]
+language_id = "ruby"
+command = "ruby-lsp"
+extensions = ["rb", "erb"]
+heuristics = { markers = ["Gemfile"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# PHP
+[[lsp_servers]]
+language_id = "php"
+command = "phpactor"
+args = ["language-server"]
+extensions = ["php"]
+heuristics = { markers = ["composer.json"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# SQL
+[[lsp_servers]]
+language_id = "sql"
+command = "sql-language-server"
+args = ["up", "--method", "stdio"]
+extensions = ["sql"]
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# Bash / Shell
+[[lsp_servers]]
+language_id = "bash"
+command = "bash-language-server"
+args = ["start"]
+extensions = ["sh", "bash", "zsh"]
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120
+
+# Solidity
+[[lsp_servers]]
+language_id = "solidity"
+command = "nomicfoundation-solc"
+args = ["--lsp"]
+extensions = ["sol"]
+heuristics = { markers = ["hardhat.config.*", "foundry.toml"], max_depth = 3 }
+
+[lsp_servers.settings]
+timeout_seconds = 30
+rate_limit_per_minute = 120

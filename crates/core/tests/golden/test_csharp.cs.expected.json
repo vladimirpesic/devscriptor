@@ -1,0 +1,18 @@
+{
+  "file": "test_csharp.cs",
+  "language": "c_sharp",
+  "min_functions": 32,
+  "min_classes": 15,
+  "min_enums": 1,
+  "min_interfaces": 1,
+  "min_type_aliases": 0,
+  "min_total_entities": 53,
+  "observed": {
+    "functions": 38,
+    "classes": 18,
+    "enums": 2,
+    "interfaces": 2,
+    "type_aliases": 1,
+    "total": 63
+  }
+}

@@ -1,0 +1,218 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+repository = "https://github.com/vladimirpesic/devscriptor"
+readme = "README.md"
+keywords = ["code-analysis", "static-analysis", "developer-tools", "lsp", "mcp"]
+categories = ["development-tools", "command-line-utilities", "parsing"]
+
+[workspace.dependencies]
+# Core parsing - individual tree-sitter language crates
+tree-sitter = "0.27"
+
+# Tree-sitter language parsers
+#
+# The grammar crates do not release on tree-sitter's schedule; they build and
+# run against tree-sitter 0.27 through the `tree-sitter-language` layer
+# (v0.1.x). Bump one only with `cargo test --workspace --all-features` passing.
+#
+# Versions behind tree-sitter's own:
+#   - tree-sitter-c         0.24
+#   - tree-sitter-rust      0.24
+#   - tree-sitter-c-sharp   0.23
+#   - tree-sitter-cpp       0.23
+#   - tree-sitter-php       0.24
+#   - tree-sitter-cuda      0.21
+#   - tree-sitter-dart      0.2
+#   - tree-sitter-fsharp    0.3
+#   - tree-sitter-graphql   0.3
+#   - tree-sitter-html      0.23
+#   - tree-sitter-java      0.23
+#   - tree-sitter-kotlin-ng 1.1
+#   - tree-sitter-objc      3.0
+#   - tree-sitter-ruby      0.23
+#   - tree-sitter-scala     0.26
+#   - tree-sitter-sequel    0.3
+#   - tree-sitter-solidity  1.2
+#   - tree-sitter-svelte-next 0.1
+#   - tree-sitter-swift     0.7
+#   - tree-sitter-vb-dotnet 0.1
+#   - tree-sitter-vue-next  0.1
+tree-sitter-bash = "0.25"
+tree-sitter-typescript = "0.23"
+tree-sitter-c = "0.24"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-cpp = "0.23"
+tree-sitter-cuda = "0.21"
+tree-sitter-dart = "0.2"
+tree-sitter-fsharp = "0.3"
+tree-sitter-go = "0.25"
+tree-sitter-graphql = "0.3"
+tree-sitter-html = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-kotlin-ng = "1.1"
+tree-sitter-objc = "3.0"
+tree-sitter-php = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-ruby = "0.23"
+tree-sitter-rust = "0.24"
+tree-sitter-scala = "0.26"
+tree-sitter-sequel = "0.3"
+tree-sitter-solidity = "1.2"
+tree-sitter-svelte-next = "0.1"
+tree-sitter-swift = "0.7"
+tree-sitter-vb-dotnet = "0.1"
+tree-sitter-vue-next = "0.1"
+
+# Database
+rusqlite = { version = "0.40", features = ["bundled", "serde_json", "uuid", "time", "functions"] }
+sqlite-vec = "0.1"
+r2d2 = "0.8"
+r2d2_sqlite = "0.35"
+
+# Embeddings — pure-Rust ONNX inference (tract) and the tokenizer: no C++
+# runtime, so the binary has no libonnxruntime/libstdc++/OpenSSL dependency and
+# links cleanly against an old glibc (see docs/building.md). `tokenizers` uses
+# fancy-regex (pure Rust), never onig (C) or esaxx (C++); it tokenizes the
+# jina-embeddings-v2-base-code inputs as onig does.
+tract-onnx = "0.23"
+# tract-linalg is a transitive dep of tract-onnx; we name it directly only to
+# enable `multithread-mm` (rayon-based intra-run matmul parallelism). Cargo
+# unifies the feature into the tract-onnx build. rayon is pure Rust, so the
+# portable/no-C++ property is preserved.
+tract-linalg = { version = "0.23", features = ["multithread-mm"] }
+tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }
+
+# Async & Concurrency
+# tokio with the features the code uses, not "full", for a leaner build:
+#   rt-multi-thread — tokio::spawn / spawn_blocking / #[tokio::main]
+#   macros          — #[tokio::main], #[tokio::test]
+#   fs              — tokio::fs
+#   io-util         — AsyncRead/Write/BufReader (LSP framing, streaming)
+#   io-std          — tokio::io::stdin/stdout (LSP + MCP + REPL stdio transport)
+#   sync, time      — channels/locks, sleep/timeout/back-pressure
+#   process         — tokio::process child language servers (LSP)
+#   signal          — signal::ctrl_c graceful shutdown (MCP)
+# No `net` here: only the MCP crate uses a socket (between `devscriptor serve` and
+# the sessions it serves), and enables it on its own dependency.
+# The `lsp` crate adds `parking_lot` on top. Dependencies needing extra tokio
+# features enable them on their own dep; Cargo feature-unification picks them up.
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "fs",
+    "io-util",
+    "io-std",
+    "sync",
+    "time",
+    "process",
+    "signal",
+] }
+tokio-util = "0.7"
+futures = "0.3"
+
+# Duplicate versions in the tree (see docs/decisions.md): base64 0.13, through
+# tokenizers -> spm_precompiled, beside 0.23; bitflags 1, through lsp-types 0.97
+# -> fluent-uri 0.1, beside 2. Each goes when its dependent moves on.
+
+# MCP Protocol. The tools are declared by hand (no `#[tool]` macros), so only
+# the server half is needed; devscriptor-mcp adds the stdio transport.
+rmcp = { version = "3.5", default-features = false, features = ["server"] }
+
+# File watching
+notify = "8"
+
+# Serialization
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "1"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+indicatif = "0.18"
+console = "0.16"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Cryptography
+sha2 = "0.11"
+
+# Hashing (non-cryptographic, for performance)
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+# System
+num_cpus = "1.16"
+# Only system memory and disks are read.
+sysinfo = { version = "0.39", default-features = false, features = ["system", "disk"] }
+
+# Utilities
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
+time = { version = "0.3", features = ["serde", "serde-well-known", "formatting", "parsing"] }
+memmap2 = "0.9"
+parking_lot = "0.12"
+flate2 = "1"
+tar = "0.4"
+# LSP server archives are plain deflate; the other methods (bzip2, zstd, lzma,
+# AES) would pull in C libraries for nothing.
+zip = { version = "9", default-features = false, features = ["deflate"] }
+moka = { version = "0.12", features = ["sync"] }
+similar = "3"
+regex = "1"
+glob = "0.3"
+globset = "0.4"
+walkdir = "2"
+ignore = "0.4"
+tempfile = "3"
+# HTTP for the model download (core) and LSP server downloads (lsp). reqwest's
+# own `rustls` feature means aws-lc (a C library, and a hazard for the
+# glibc-2.17 zigbuild) and the platform's trust store, so reqwest is built
+# without a crypto provider and every client is handed a rustls configuration
+# with ring and the Mozilla roots `webpki-roots` bundles. HTTP/1.1 only.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1"
+dirs = "7"
+# Canonical paths without Windows' verbatim prefix (`\\?\C:\…`) where the plain
+# form names the same file: a verbatim path makes no `file://` URI, and
+# language servers answer with plain paths.
+dunce = "1"
+lsp-types = "0.97"
+which = "8"
+async-compression = "0.4"
+hex = "0.4"
+dialoguer = "0.12"
+nix = { version = "0.31", features = ["process", "fs"] }
+libc = "0.2"
+# The version tokio uses: no second copy.
+windows-sys = "0.61"
+filetime = "0.2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.size-optimized]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

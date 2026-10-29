@@ -1,0 +1,20 @@
+{
+  "description": "Expected call edges for call_graph_labeled.py (test_call_graph_precision.rs)",
+  "precision_threshold": 0.85,
+  "recall_threshold": 0.70,
+  "expected_call_edges": [
+    { "caller": "mid_a",     "callee": "leaf_alpha" },
+    { "caller": "mid_b",     "callee": "leaf_alpha" },
+    { "caller": "mid_b",     "callee": "leaf_beta"  },
+    { "caller": "mid_c",     "callee": "leaf_gamma" },
+    { "caller": "mid_c",     "callee": "leaf_alpha" },
+    { "caller": "top_caller","callee": "mid_a"      },
+    { "caller": "top_caller","callee": "mid_b"      },
+    { "caller": "top_caller","callee": "mid_c"      }
+  ],
+  "noise_sources": [
+    "DESCRIPTION string literal mentions 'leaf_alpha' and 'leaf_beta' — must not produce edges",
+    "leaf_alpha docstring mentions 'leaf_beta()' — must not produce an edge",
+    "leaf_beta comment mentions 'leaf_alpha()' — must not produce an edge"
+  ]
+}

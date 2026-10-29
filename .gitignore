@@ -1,0 +1,27 @@
+/target
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.idea/
+*.swp
+*.swo
+*~
+/models
+/test-data
+node_modules/
+out/
+lsp-packages/
+lsp-servers/
+.DS_Store
+
+# Test-generated analysis artifacts (slow-tests / corpus integration tests)
+*.report.json
+*.quality_metrics.json
+*_test_report.json
+
+# Release archives (docs/building.md)
+/dist/
+
+# Local agent settings
+.claude/

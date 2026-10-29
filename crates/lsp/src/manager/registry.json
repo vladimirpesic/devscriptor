@@ -1,0 +1,836 @@
+{
+  "servers": {
+    "rust-analyzer": {
+      "id": "rust-analyzer",
+      "name": "Rust Analyzer",
+      "languages": [
+        "rust"
+      ],
+      "source": {
+        "type": "github-release",
+        "repo": "rust-lang/rust-analyzer",
+        "asset_pattern": "rust-analyzer-{arch}-{os}.gz"
+      },
+      "size_mb": 42,
+      "bin_path": "bin/rust-analyzer",
+      "license": "MIT OR Apache-2.0",
+      "license_files": [
+        {
+          "url": "https://raw.githubusercontent.com/rust-lang/rust-analyzer/c59cdaa4c26ffe036a3403e4948f1681995d4125/LICENSE-MIT",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/rust-lang/rust-analyzer/c59cdaa4c26ffe036a3403e4948f1681995d4125/LICENSE-APACHE",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+        }
+      ],
+      "extensions": [
+        "rs"
+      ],
+      "heuristics": {
+        "markers": [
+          "Cargo.toml",
+          "Cargo.lock"
+        ],
+        "max_depth": 3
+      },
+      "args": [],
+      "initialization_options": {
+        "cargo": {
+          "targetDir": true
+        }
+      }
+    },
+    "clangd": {
+      "id": "clangd",
+      "name": "clangd",
+      "languages": [
+        "c",
+        "cpp",
+        "cuda",
+        "objective-cpp",
+        "objective-c"
+      ],
+      "source": {
+        "type": "github-release",
+        "repo": "clangd/clangd",
+        "asset_pattern": "clangd-{platform}-{version}.zip",
+        "published_for": [
+          "linux-x86_64",
+          "macos-x86_64",
+          "macos-aarch64",
+          "windows-x86_64"
+        ]
+      },
+      "size_mb": 56,
+      "bin_path": "bin/clangd",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "url": "https://raw.githubusercontent.com/llvm/llvm-project/17501a9d4845b6f3082f449728757f9a3ad15072/clang-tools-extra/LICENSE.TXT",
+          "sha256": "ebcd9bbf783a73d05c53ba4d586b8d5813dcdf3bbec50265860ccc885e606f47"
+        }
+      ],
+      "extensions": [
+        "c",
+        "cpp",
+        "cc",
+        "cxx",
+        "h",
+        "hpp",
+        "cu",
+        "cuh",
+        "mm",
+        "m"
+      ],
+      "heuristics": {
+        "markers": [
+          "compile_commands.json",
+          "compile_flags.txt",
+          ".clangd",
+          "CMakeLists.txt",
+          "Makefile"
+        ],
+        "max_depth": 3
+      },
+      "args": [
+        "--resource-dir={server_dir}/resource-dir",
+        "--compile-commands-dir={compile_commands_dir}"
+      ]
+    },
+    "gopls": {
+      "id": "gopls",
+      "name": "Go Language Server",
+      "languages": [
+        "go"
+      ],
+      "source": {
+        "type": "go-install",
+        "package": "golang.org/x/tools/gopls@latest"
+      },
+      "size_mb": 25,
+      "bin_path": "bin/gopls",
+      "license": "BSD-3-Clause",
+      "license_files": [
+        {
+          "url": "https://raw.githubusercontent.com/golang/tools/84bd18765c7adef571477370ea5431b6556bb4fc/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+        }
+      ],
+      "extensions": [
+        "go"
+      ],
+      "heuristics": {
+        "markers": [
+          "go.mod",
+          "go.sum"
+        ],
+        "max_depth": 3
+      },
+      "args": []
+    },
+    "typescript-language-server": {
+      "id": "typescript-language-server",
+      "name": "TypeScript Language Server",
+      "languages": [
+        "typescript",
+        "javascript",
+        "tsx"
+      ],
+      "source": {
+        "type": "npm",
+        "package": "typescript-language-server",
+        "version": "5.3.0",
+        "companions": [
+          "typescript@5.9.3"
+        ]
+      },
+      "size_mb": 30,
+      "bin_path": "node_modules/.bin/typescript-language-server",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "path": "node_modules/typescript-language-server/LICENSE"
+        }
+      ],
+      "extensions": [
+        "ts",
+        "tsx",
+        "js",
+        "jsx"
+      ],
+      "heuristics": {
+        "markers": [
+          "package.json",
+          "tsconfig.json"
+        ],
+        "max_depth": 3
+      },
+      "args": [
+        "--stdio"
+      ],
+      "initialization_options": {
+        "tsserver": {
+          "path": "{server_dir}/node_modules/typescript/lib/tsserver.js"
+        }
+      }
+    },
+    "volar": {
+      "id": "volar",
+      "name": "Vue Language Server (Volar)",
+      "languages": [
+        "vue"
+      ],
+      "source": {
+        "type": "npm",
+        "package": "@vue/language-server",
+        "version": "2.2.12",
+        "companions": [
+          "typescript@5.9.3"
+        ]
+      },
+      "size_mb": 45,
+      "bin_path": "node_modules/.bin/vue-language-server",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "node_modules/@vue/language-server/LICENSE"
+        }
+      ],
+      "extensions": [
+        "vue"
+      ],
+      "heuristics": {
+        "markers": [
+          "vite.config.ts",
+          "nuxt.config.ts"
+        ],
+        "max_depth": 2
+      },
+      "args": [
+        "--stdio"
+      ],
+      "initialization_options": {
+        "typescript": {
+          "tsdk": "{server_dir}/node_modules/typescript/lib"
+        },
+        "vue": {
+          "hybridMode": false
+        }
+      },
+      "timeout_seconds": 90
+    },
+    "svelte-language-server": {
+      "id": "svelte-language-server",
+      "name": "Svelte Language Server",
+      "languages": [
+        "svelte"
+      ],
+      "source": {
+        "type": "npm",
+        "package": "svelte-language-server",
+        "version": "0.18.3"
+      },
+      "size_mb": 25,
+      "bin_path": "node_modules/.bin/svelteserver",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "node_modules/svelte-language-server/LICENSE"
+        }
+      ],
+      "extensions": [
+        "svelte"
+      ],
+      "heuristics": {
+        "markers": [
+          "svelte.config.js"
+        ],
+        "max_depth": 2
+      },
+      "args": [
+        "--stdio"
+      ]
+    },
+    "html-languageserver": {
+      "id": "html-languageserver",
+      "name": "HTML Language Server",
+      "languages": [
+        "html"
+      ],
+      "source": {
+        "type": "npm",
+        "package": "vscode-langservers-extracted",
+        "version": "4.10.0"
+      },
+      "size_mb": 10,
+      "bin_path": "node_modules/.bin/vscode-html-language-server",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "node_modules/vscode-langservers-extracted/LICENSE"
+        }
+      ],
+      "extensions": [
+        "html",
+        "htm"
+      ],
+      "args": [
+        "--stdio"
+      ]
+    },
+    "graphql-language-service": {
+      "id": "graphql-language-service",
+      "name": "GraphQL Language Service",
+      "languages": [
+        "graphql"
+      ],
+      "source": {
+        "type": "npm",
+        "package": "graphql-language-service-cli",
+        "version": "3.5.0"
+      },
+      "size_mb": 20,
+      "bin_path": "node_modules/.bin/graphql-lsp",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "node_modules/graphql-language-service-cli/LICENSE"
+        }
+      ],
+      "extensions": [
+        "graphql",
+        "gql"
+      ],
+      "heuristics": {
+        "markers": [
+          "graphql.config.ts",
+          "graphql.config.cts",
+          "graphql.config.mts",
+          "graphql.config.js",
+          "graphql.config.cjs",
+          "graphql.config.mjs",
+          "graphql.config.json",
+          "graphql.config.yaml",
+          "graphql.config.yml",
+          "graphql.config.toml",
+          ".graphqlrc",
+          ".graphqlrc.ts",
+          ".graphqlrc.cts",
+          ".graphqlrc.mts",
+          ".graphqlrc.js",
+          ".graphqlrc.cjs",
+          ".graphqlrc.mjs",
+          ".graphqlrc.json",
+          ".graphqlrc.yml",
+          ".graphqlrc.yaml",
+          ".graphqlrc.toml",
+          ".graphqlconfig",
+          ".graphqlconfig.json",
+          ".graphqlconfig.yaml",
+          ".graphqlconfig.yml"
+        ],
+        "max_depth": 2
+      },
+      "args": [
+        "server",
+        "-m",
+        "stream"
+      ]
+    },
+    "pyright": {
+      "id": "pyright",
+      "name": "Pyright",
+      "languages": [
+        "python"
+      ],
+      "source": {
+        "type": "npm",
+        "package": "pyright",
+        "version": "1.1.411"
+      },
+      "size_mb": 35,
+      "bin_path": "node_modules/.bin/pyright-langserver",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "node_modules/pyright/LICENSE.txt"
+        }
+      ],
+      "extensions": [
+        "py",
+        "pyw",
+        "pyi"
+      ],
+      "heuristics": {
+        "markers": [
+          "pyproject.toml",
+          "requirements.txt"
+        ],
+        "max_depth": 3
+      },
+      "args": [
+        "--stdio"
+      ]
+    },
+    "sql-language-server": {
+      "id": "sql-language-server",
+      "name": "SQL Language Server",
+      "languages": [
+        "sql"
+      ],
+      "source": {
+        "type": "npm",
+        "package": "sql-language-server",
+        "version": "1.7.1",
+        "companions": [
+          "vscode-languageserver-protocol@3.16.0"
+        ]
+      },
+      "size_mb": 20,
+      "bin_path": "node_modules/.bin/sql-language-server",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "node_modules/sql-language-server/LICENSE"
+        }
+      ],
+      "extensions": [
+        "sql"
+      ],
+      "args": [
+        "up",
+        "--method",
+        "stdio"
+      ]
+    },
+    "jdtls": {
+      "id": "jdtls",
+      "name": "Eclipse JDT Language Server",
+      "languages": [
+        "java"
+      ],
+      "source": {
+        "type": "download",
+        "url": "https://download.eclipse.org/jdtls/milestones/{version}/jdt-language-server-{version}-202609031315.tar.gz",
+        "version": "1.61.0",
+        "expected_sha256": "338e7e73d61836651ba2453919a0d34fa763eb4e7c03342092309bffb8934c64"
+      },
+      "size_mb": 120,
+      "bin_path": "bin/jdtls",
+      "license": "EPL-2.0",
+      "license_files": [
+        {
+          "url": "https://raw.githubusercontent.com/eclipse-jdtls/eclipse.jdt.ls/273dd9439867a6498efd4bbd0dcf090e37f6ea5e/LICENSE",
+          "sha256": "209fe24bf55677bbf81c2b0481c1403201fab57b3b4c609971eba4ec8162b99c"
+        }
+      ],
+      "extensions": [
+        "java"
+      ],
+      "heuristics": {
+        "markers": [
+          "pom.xml",
+          "build.gradle"
+        ],
+        "max_depth": 3
+      },
+      "args": [
+        "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false"
+      ],
+      "timeout_seconds": 120
+    },
+    "kotlin-lsp": {
+      "id": "kotlin-lsp",
+      "name": "Kotlin LSP",
+      "languages": [
+        "kotlin"
+      ],
+      "source": {
+        "type": "download",
+        "url": "https://download.jetbrains.com/language-server/kotlin-server/{version}/kotlin-server-{version}{platform}",
+        "version": "263.6379.0",
+        "platforms": {
+          "linux-x86_64": {
+            "name": ".tar.gz",
+            "sha256": "ab8ca4455dc2fc5fe1a24db2bccc46c104254d2c465155c4251ee65df8f3f7cc"
+          },
+          "linux-aarch64": {
+            "name": "-aarch64.tar.gz",
+            "sha256": "50999901ef8bcfa1e58561b6a8d782a72dea5620fcf92a64130807f8924a56fc"
+          },
+          "macos-x86_64": {
+            "name": ".sit",
+            "sha256": "e69e0c9d27b915b2db9ee692ec08d097df1a394d9f21190457ef199f2905f77e"
+          },
+          "macos-aarch64": {
+            "name": "-aarch64.sit",
+            "sha256": "ebef2e13cd4adc4ec9e04084b848000a3ec7a9d2917c64f269574ce2efe9ecad"
+          },
+          "windows-x86_64": {
+            "name": ".win.zip",
+            "sha256": "72148fa0832c2a45a4b26c55f56197d8d8886bcdb732b910607efc5e2693b9df"
+          },
+          "windows-aarch64": {
+            "name": "-aarch64.win.zip",
+            "sha256": "290f48cb564295239bb678bb66b1ebbd06755b14fd4890f3cdf822f41af011ef"
+          }
+        }
+      },
+      "size_mb": 360,
+      "bin_path": "bin/intellij-server",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "url": "https://raw.githubusercontent.com/Kotlin/kotlin-lsp/8f61a287617ed09e18d7dd18c403b70986ab92e0/LICENSE.txt",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ],
+      "extensions": [
+        "kt",
+        "kts"
+      ],
+      "heuristics": {
+        "markers": [
+          "settings.gradle.kts",
+          "settings.gradle",
+          "build.gradle.kts",
+          "build.gradle",
+          "pom.xml"
+        ],
+        "max_depth": 3
+      },
+      "args": [
+        "--stdio",
+        "--system-path={cache_dir}/kotlin-lsp"
+      ],
+      "timeout_seconds": 180
+    },
+    "metals": {
+      "id": "metals",
+      "name": "Metals",
+      "languages": [
+        "scala"
+      ],
+      "source": {
+        "type": "coursier",
+        "package": "org.scalameta:metals_2.13",
+        "version": "1.6.7"
+      },
+      "size_mb": 130,
+      "bin_path": "bin/metals",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "url": "https://raw.githubusercontent.com/scalameta/metals/0ca013507d467ae343afa32c0378013e84960a42/LICENSE",
+          "sha256": "09c9aa5648f101423a3cfa4eb26dad218806c84661c776db2eeedd394d887bc0"
+        }
+      ],
+      "extensions": [
+        "scala",
+        "sc"
+      ],
+      "heuristics": {
+        "markers": [
+          "build.sbt"
+        ],
+        "max_depth": 3
+      },
+      "args": [],
+      "timeout_seconds": 180
+    },
+    "csharp-ls": {
+      "id": "csharp-ls",
+      "name": "csharp-ls",
+      "languages": [
+        "csharp"
+      ],
+      "source": {
+        "type": "dotnet-tool",
+        "package": "csharp-ls",
+        "version": "0.16.0"
+      },
+      "size_mb": 35,
+      "bin_path": "bin/csharp-ls",
+      "license": "MIT",
+      "license_files": [
+        {
+          "url": "https://raw.githubusercontent.com/razzmatazz/csharp-language-server/19ec0e2bbc28f449d004760da1f586a3cd1b814f/LICENSE",
+          "sha256": "2077a187c02688a6e2e816ea81f846667c50d09c2ee5c7f0f82594b452e63118"
+        }
+      ],
+      "extensions": [
+        "cs"
+      ],
+      "heuristics": {
+        "markers": [
+          "*.csproj",
+          "*.sln"
+        ],
+        "max_depth": 3
+      },
+      "args": [],
+      "env": {
+        "DOTNET_ROLL_FORWARD": "Major"
+      },
+      "timeout_seconds": 180
+    },
+    "fsautocomplete": {
+      "id": "fsautocomplete",
+      "name": "FsAutoComplete",
+      "languages": [
+        "fsharp"
+      ],
+      "source": {
+        "type": "dotnet-tool",
+        "package": "fsautocomplete",
+        "version": "0.83.0"
+      },
+      "size_mb": 40,
+      "bin_path": "bin/fsautocomplete",
+      "license": "Apache-2.0",
+      "license_files": [
+        {
+          "url": "https://raw.githubusercontent.com/ionide/FsAutoComplete/4c33a2a7223ea1a885c6bf91e92c7c967c524597/LICENSE.md",
+          "sha256": "726c0969376ca32c892b1cecb782e63fa20dccded02783ee95f9d92ecd68bccd"
+        }
+      ],
+      "extensions": [
+        "fs",
+        "fsx",
+        "fsi"
+      ],
+      "heuristics": {
+        "markers": [
+          "*.fsproj",
+          "*.sln"
+        ],
+        "max_depth": 3
+      },
+      "args": [],
+      "env": {
+        "DOTNET_ROLL_FORWARD": "Major"
+      },
+      "timeout_seconds": 180,
+      "initialization_options": {
+        "AutomaticWorkspaceInit": true
+      }
+    },
+    "sourcekit-lsp": {
+      "id": "sourcekit-lsp",
+      "name": "SourceKit-LSP",
+      "languages": [
+        "swift",
+        "objective-c"
+      ],
+      "source": {
+        "type": "system"
+      },
+      "size_mb": 0,
+      "bin_path": "bin/sourcekit-lsp",
+      "license": "Apache-2.0",
+      "extensions": [
+        "swift"
+      ],
+      "heuristics": {
+        "markers": [
+          "Package.swift"
+        ],
+        "max_depth": 3
+      },
+      "args": [],
+      "timeout_seconds": 90
+    },
+    "dart-ls": {
+      "id": "dart-ls",
+      "name": "Dart Analysis Server",
+      "languages": [
+        "dart"
+      ],
+      "source": {
+        "type": "download",
+        "url": "https://storage.googleapis.com/dart-archive/channels/stable/release/{version}/sdk/dartsdk-{platform}-release.zip",
+        "version": "3.12.2",
+        "platforms": {
+          "linux-x86_64": {
+            "name": "linux-x64",
+            "sha256": "28e47b44cf075f36771046c068bb0d174201cf9c7608744aed1cc23204299c2d"
+          },
+          "linux-aarch64": {
+            "name": "linux-arm64",
+            "sha256": "f82c83ece7d168047550dfd4a664e4071ac7c488bddb72dc43102c22d7e0b518"
+          },
+          "macos-x86_64": {
+            "name": "macos-x64",
+            "sha256": "38199f56fe22f2235e76799191d5b9516e360369c61b6ba4411398d5d5920bab"
+          },
+          "macos-aarch64": {
+            "name": "macos-arm64",
+            "sha256": "cd8753928e77b6b665bd70dce0e64b4ec6d2e2fde141d6409bb716c8ac1f1c0a"
+          },
+          "windows-x86_64": {
+            "name": "windows-x64",
+            "sha256": "77fd96c823ed09a85e58209a2c5f16b0fc02e5ed4f3e3d46fddf4be763d498d6"
+          },
+          "windows-aarch64": {
+            "name": "windows-arm64",
+            "sha256": "ef0168b2bbceccda659e3d9a0f5ebebd5326ef84800ca6af7ccceeb1cfd3daf0"
+          }
+        }
+      },
+      "size_mb": 150,
+      "bin_path": "bin/dart",
+      "license": "BSD-3-Clause",
+      "license_files": [
+        {
+          "path": "LICENSE"
+        }
+      ],
+      "extensions": [
+        "dart"
+      ],
+      "heuristics": {
+        "markers": [
+          "pubspec.yaml"
+        ],
+        "max_depth": 3
+      },
+      "args": [
+        "language-server"
+      ]
+    },
+    "ruby-lsp": {
+      "id": "ruby-lsp",
+      "name": "Ruby LSP",
+      "languages": [
+        "ruby"
+      ],
+      "source": {
+        "type": "gem",
+        "package": "ruby-lsp",
+        "version": "0.26.11"
+      },
+      "size_mb": 10,
+      "bin_path": "bin/ruby-lsp-launcher",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "gems/ruby-lsp-[0-9]*/LICENSE.txt"
+        }
+      ],
+      "extensions": [
+        "rb",
+        "erb"
+      ],
+      "heuristics": {
+        "markers": [
+          "Gemfile"
+        ],
+        "max_depth": 3
+      },
+      "args": [],
+      "env": {
+        "GEM_HOME": "{server_dir}",
+        "GEM_PATH": "{server_dir}"
+      },
+      "timeout_seconds": 90
+    },
+    "bash-language-server": {
+      "id": "bash-language-server",
+      "name": "Bash Language Server",
+      "languages": [
+        "bash",
+        "sh"
+      ],
+      "source": {
+        "type": "npm",
+        "package": "bash-language-server",
+        "version": "5.6.0"
+      },
+      "size_mb": 15,
+      "bin_path": "node_modules/.bin/bash-language-server",
+      "license": "MIT",
+      "license_files": [
+        {
+          "url": "https://raw.githubusercontent.com/bash-lsp/bash-language-server/dc16e9cbcc931e7baa13c3ab8b44df0b6777a5a0/LICENSE",
+          "sha256": "291d324119550df1624f0af60388393fe36b02bc5e61d9a236afab1801b33042"
+        }
+      ],
+      "extensions": [
+        "sh",
+        "bash",
+        "zsh"
+      ],
+      "args": [
+        "start"
+      ]
+    },
+    "nomicfoundation-solc": {
+      "id": "nomicfoundation-solc",
+      "name": "Nomic Foundation Solidity Language Server",
+      "languages": [
+        "solidity"
+      ],
+      "source": {
+        "type": "npm",
+        "package": "@nomicfoundation/solidity-language-server",
+        "version": "0.8.25"
+      },
+      "size_mb": 35,
+      "bin_path": "node_modules/.bin/nomicfoundation-solidity-language-server",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "node_modules/@nomicfoundation/solidity-language-server/LICENSE"
+        }
+      ],
+      "extensions": [
+        "sol"
+      ],
+      "heuristics": {
+        "markers": [
+          "hardhat.config.js",
+          "foundry.toml"
+        ],
+        "max_depth": 3
+      },
+      "args": [
+        "--stdio"
+      ]
+    },
+    "phpactor": {
+      "id": "phpactor",
+      "name": "Phpactor",
+      "languages": [
+        "php"
+      ],
+      "source": {
+        "type": "github-release",
+        "repo": "phpactor/phpactor",
+        "asset_pattern": "phpactor.phar",
+        "version": "latest"
+      },
+      "size_mb": 15,
+      "bin_path": "bin/phpactor",
+      "license": "MIT",
+      "license_files": [
+        {
+          "url": "https://raw.githubusercontent.com/phpactor/phpactor/3ed86525efc04aafaaa1e129c4cdae4ea9cea15a/LICENSE",
+          "sha256": "4287c3b7c293133dc59e92cb32a1aae899c4441ac6d64455c537c82070c84caa"
+        }
+      ],
+      "extensions": [
+        "php"
+      ],
+      "heuristics": {
+        "markers": [
+          "composer.json"
+        ],
+        "max_depth": 3
+      },
+      "args": [
+        "language-server"
+      ]
+    }
+  }
+}

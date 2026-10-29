@@ -1,0 +1,481 @@
+# Comprehensive GraphQL test file
+
+# Type definitions
+type User {
+  id: ID!
+  username: String!
+  email: String!
+  firstName: String
+  lastName: String
+  age: Int
+  isActive: Boolean!
+  roles: [Role!]!
+  orders: [Order!]!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type Role {
+  id: ID!
+  name: String!
+  description: String
+  users: [User!]!
+  permissions: [String!]!
+}
+
+type Category {
+  id: ID!
+  name: String!
+  description: String
+  products: [Product!]!
+  createdAt: DateTime!
+}
+
+type Product {
+  id: ID!
+  category: Category!
+  name: String!
+  description: String
+  price: Float!
+  stock: Int!
+  isActive: Boolean!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type Order {
+  id: ID!
+  user: User!
+  total: Float!
+  status: OrderStatus!
+  items: [OrderItem!]!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type OrderItem {
+  id: ID!
+  order: Order!
+  product: Product!
+  quantity: Int!
+  price: Float!
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+scalar DateTime
+
+# Input types
+input CreateUserInput {
+  username: String!
+  email: String!
+  password: String!
+  firstName: String
+  lastName: String
+  age: Int
+}
+
+input UpdateUserInput {
+  id: ID!
+  username: String
+  email: String
+  firstName: String
+  lastName: String
+  age: Int
+  isActive: Boolean
+}
+
+input CreateProductInput {
+  categoryId: ID!
+  name: String!
+  description: String
+  price: Float!
+  stock: Int
+  isActive: Boolean
+}
+
+input UpdateProductInput {
+  id: ID!
+  categoryId: ID
+  name: String
+  description: String
+  price: Float
+  stock: Int
+  isActive: Boolean
+}
+
+input CreateOrderInput {
+  userId: ID!
+  items: [OrderItemInput!]!
+}
+
+input OrderItemInput {
+  productId: ID!
+  quantity: Int!
+}
+
+input UserFilterInput {
+  isActive: Boolean
+  minAge: Int
+  maxAge: Int
+  hasRole: String
+}
+
+# Query operations
+type Query {
+  # User queries
+  user(id: ID!): User
+  users(filter: UserFilterInput, limit: Int = 10, offset: Int = 0): [User!]!
+  currentUser: User
+  
+  # Product queries
+  product(id: ID!): Product
+  products(categoryId: ID, isActive: Boolean = true, limit: Int = 10): [Product!]!
+  
+  # Category queries
+  category(id: ID!): Category
+  categories: [Category!]!
+  
+  # Order queries
+  order(id: ID!): Order
+  orders(userId: ID, status: OrderStatus, limit: Int = 10): [Order!]!
+  
+  # Role queries
+  role(id: ID!): Role
+  roles: [Role!]!
+  
+  # Search
+  searchProducts(query: String!, limit: Int = 10): [Product!]!
+  searchUsers(query: String!, limit: Int = 10): [User!]!
+}
+
+# Mutation operations
+type Mutation {
+  # User mutations
+  createUser(input: CreateUserInput!): User!
+  updateUser(input: UpdateUserInput!): User!
+  deleteUser(id: ID!): Boolean!
+  assignRole(userId: ID!, roleId: ID!): User!
+  removeRole(userId: ID!, roleId: ID!): User!
+  
+  # Product mutations
+  createProduct(input: CreateProductInput!): Product!
+  updateProduct(input: UpdateProductInput!): Product!
+  deleteProduct(id: ID!): Boolean!
+  
+  # Category mutations
+  createCategory(name: String!, description: String): Category!
+  updateCategory(id: ID!, name: String, description: String): Category!
+  deleteCategory(id: ID!): Boolean!
+  
+  # Order mutations
+  createOrder(input: CreateOrderInput!): Order!
+  updateOrderStatus(id: ID!, status: OrderStatus!): Order!
+  cancelOrder(id: ID!): Order!
+  
+  # Role mutations
+  createRole(name: String!, description: String): Role!
+  updateRole(id: ID!, name: String, description: String): Role!
+  deleteRole(id: ID!): Boolean!
+}
+
+# Subscription operations
+type Subscription {
+  # Real-time updates
+  userUpdated(userId: ID!): User
+  productUpdated(productId: ID!): Product
+  orderCreated(userId: ID): Order
+  orderUpdated(orderId: ID!): Order
+  orderStatusChanged(status: OrderStatus!): Order
+}
+
+# Query examples
+query GetUsers {
+  users {
+    id
+    username
+    email
+    firstName
+    lastName
+    age
+    isActive
+  }
+}
+
+query GetUserWithRoles($id: ID!) {
+  user(id: $id) {
+    id
+    username
+    email
+    roles {
+      id
+      name
+      description
+      permissions
+    }
+  }
+}
+
+query GetProducts {
+  products {
+    id
+    name
+    description
+    price
+    stock
+    isActive
+    category {
+      id
+      name
+    }
+  }
+}
+
+query GetUserOrders($userId: ID!) {
+  user(id: $userId) {
+    id
+    username
+    orders {
+      id
+      total
+      status
+      createdAt
+      items {
+        product {
+          name
+          price
+        }
+        quantity
+        price
+      }
+    }
+  }
+}
+
+query SearchProducts($query: String!) {
+  searchProducts(query: $query) {
+    id
+    name
+    description
+    price
+    category {
+      name
+    }
+  }
+}
+
+query GetUsersWithFilter($filter: UserFilterInput) {
+  users(filter: $filter) {
+    id
+    username
+    email
+    age
+    isActive
+    roles {
+      name
+    }
+  }
+}
+
+# Mutation examples
+mutation CreateUser($input: CreateUserInput!) {
+  createUser(input: $input) {
+    id
+    username
+    email
+    firstName
+    lastName
+    createdAt
+  }
+}
+
+mutation CreateProduct($input: CreateProductInput!) {
+  createProduct(input: $input) {
+    id
+    name
+    description
+    price
+    stock
+    category {
+      id
+      name
+    }
+  }
+}
+
+mutation CreateOrder($input: CreateOrderInput!) {
+  createOrder(input: $input) {
+    id
+    total
+    status
+    createdAt
+    user {
+      username
+      email
+    }
+  }
+}
+
+mutation UpdateOrderStatus($id: ID!, $status: OrderStatus!) {
+  updateOrderStatus(id: $id, status: $status) {
+    id
+    status
+    updatedAt
+  }
+}
+
+mutation AssignRole($userId: ID!, $roleId: ID!) {
+  assignRole(userId: $userId, roleId: $roleId) {
+    id
+    username
+    roles {
+      id
+      name
+    }
+  }
+}
+
+# Subscription examples
+subscription OnUserUpdated($userId: ID!) {
+  userUpdated(userId: $userId) {
+    id
+    username
+    email
+    updatedAt
+  }
+}
+
+subscription OnOrderCreated($userId: ID) {
+  orderCreated(userId: $userId) {
+    id
+    total
+    status
+    createdAt
+    user {
+      username
+    }
+  }
+}
+
+subscription OnOrderStatusChanged($status: OrderStatus!) {
+  orderStatusChanged(status: $status) {
+    id
+    total
+    status
+    user {
+      username
+    }
+  }
+}
+
+# Fragment example
+fragment ProductFields on Product {
+  id
+  name
+  description
+  price
+  stock
+  category {
+    name
+  }
+}
+
+query ProductsFragment {
+  products {
+    ...ProductFields
+  }
+}
+
+# Union type example
+type SearchResult {
+  products: [Product!]!
+  users: [User!]!
+}
+
+query Search($query: String!) {
+  search(query: $query) {
+    products {
+      ...ProductFields
+    }
+    users {
+      id
+      username
+      email
+    }
+  }
+}
+
+# Interface example
+interface Node {
+  id: ID!
+  createdAt: DateTime!
+}
+
+type Comment implements Node {
+  id: ID!
+  content: String!
+  author: User!
+  createdAt: DateTime!
+}
+
+type Post implements Node {
+  id: ID!
+  title: String!
+  content: String!
+  author: User!
+  comments: [Comment!]!
+  createdAt: DateTime!
+}
+
+# Directive example
+directive @auth(requires: String!) on FIELD_DEFINITION | OBJECT
+directive @deprecated(reason: String = "No longer supported") on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | ENUM_VALUE
+
+type SecretData @auth(requires: "admin") {
+  secret: String!
+}
+
+type LegacyAPI {
+  oldField: String @deprecated(reason: "Use newField instead")
+  newField: String!
+}
+
+# Variables for queries
+# Variables for GetUserWithRoles
+# {
+#   "id": "1"
+# }
+
+# Variables for CreateUser
+# {
+#   "input": {
+#     "username": "alice",
+#     "email": "alice@example.com",
+#     "password": "secure123",
+#     "firstName": "Alice",
+#     "lastName": "Johnson",
+#     "age": 25
+#   }
+# }
+
+# Variables for CreateOrder
+# {
+#   "input": {
+#     "userId": "1",
+#     "items": [
+#       {
+#         "productId": "1",
+#         "quantity": 2
+#       },
+#       {
+#         "productId": "2",
+#         "quantity": 1
+#       }
+#     ]
+#   }
+# }

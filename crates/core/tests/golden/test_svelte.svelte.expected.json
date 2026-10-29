@@ -1,0 +1,18 @@
+{
+  "file": "test_svelte.svelte",
+  "language": "svelte",
+  "min_functions": 17,
+  "min_classes": 0,
+  "min_enums": 0,
+  "min_interfaces": 0,
+  "min_type_aliases": 0,
+  "min_total_entities": 25,
+  "observed": {
+    "functions": 21,
+    "classes": 0,
+    "enums": 0,
+    "interfaces": 0,
+    "type_aliases": 0,
+    "total": 30
+  }
+}

@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # The dev profile's full debug info would make the cached target directory
+  # several times larger; backtraces still name the functions.
+  CARGO_PROFILE_DEV_DEBUG: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux x64, os: ubuntu-latest, jobs: 4 }
+          - { name: Linux ARM64, os: ubuntu-24.04-arm, jobs: 4 }
+          - { name: macOS Apple Silicon, os: macos-latest, jobs: 3 }
+          - { name: macOS Intel, os: macos-26-intel, jobs: 4 }
+          - { name: Windows x64, os: windows-latest, jobs: 4 }
+    env:
+      # The repository's .cargo/config.toml builds with two jobs, for 8 GB
+      # machines; a runner has the memory for one per core.
+      CARGO_BUILD_JOBS: ${{ matrix.jobs }}
+    steps:
+      # Windows runners check text files out with CRLF line endings; the test
+      # fixtures and golden files are compared byte for byte.
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # The macOS downloader needs bash 4, which macOS does not ship: it runs
+      # under Homebrew's, which scripts/macos-*/install-dependencies.sh
+      # installs, and so does this.
+      - name: Install bash 4
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: brew install bash
+      - name: Clippy
+        id: clippy
+        shell: bash
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings 2>&1 | tee "$RUNNER_TEMP/clippy.log"
+      - name: Tests
+        id: test
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: cargo test --workspace --locked --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/test.log"
+      - name: Report failures
+        if: failure()
+        shell: bash
+        env:
+          CLIPPY: ${{ steps.clippy.outcome }}
+          TEST: ${{ steps.test.outcome }}
+        run: |
+          py=$(command -v python3 || command -v python)
+          report() { "$py" .github/scripts/annotate-failures.py "${{ matrix.name }} $1" "$RUNNER_TEMP/$1.log"; }
+          if [ "$CLIPPY" = failure ]; then report clippy; fi
+          if [ "$TEST" = failure ]; then report test; fi
+
+  extension:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:unit
+
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # A known vulnerability in a dependency fails CI.
+      - run: cargo audit
