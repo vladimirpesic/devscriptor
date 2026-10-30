@@ -127,7 +127,7 @@ fn base_url_of(overridden: Option<String>, release: Option<&str>) -> Option<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manager::{ServerRegistry, SourceType};
+    use crate::manager::ServerRegistry;
 
     /// What the packaging scripts write parses: `size_bytes` is not read,
     /// and `version` may be left out.
@@ -179,9 +179,9 @@ mod tests {
         }
     }
 
-    /// Each pinned manifest holds every server the registry installs on its
-    /// platform, at the build the registry pins, and nothing else; its
-    /// archives are named for the platform and checksummed.
+    /// Each pinned manifest holds every server the registry mirrors and
+    /// installs on its platform, at the build the registry pins, and nothing
+    /// else; its archives are named for the platform and checksummed.
     #[test]
     fn the_pinned_manifests_match_the_registry() {
         let registry = ServerRegistry::load().unwrap();
@@ -194,8 +194,8 @@ mod tests {
             };
             for server in registry.list_servers() {
                 let published = &server.source.published_for;
-                let packaged = server.source.source_type != SourceType::System
-                    && (published.is_empty() || published.contains(platform));
+                let packaged =
+                    server.is_mirrored() && (published.is_empty() || published.contains(platform));
                 let entry = manifest.servers.get(&server.id);
                 assert_eq!(
                     entry.is_some(),

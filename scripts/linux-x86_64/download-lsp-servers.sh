@@ -443,35 +443,14 @@ else
     fi
 fi
 
-# 12. Kotlin - kotlin-lsp (JetBrains' Kotlin LSP)
-# The standalone server brings its own Java runtime. The build is the one
-# registry.json pins for kotlin-lsp (direct installs fetch the same), checked
-# against the SHA-256 JetBrains publishes beside it. A build of another version
-# is replaced, and a kotlin-language-server install, a server Devscriptor does
-# not use, is removed.
-KOTLIN_LSP_VERSION="263.6379.0"
-if [ -e "$LSP_DIR/kotlin-lsp/bin/intellij-server" ] && [ "$(cat "$LSP_DIR/kotlin-lsp/.version" 2>/dev/null)" = "$KOTLIN_LSP_VERSION" ]; then
-    already_present "kotlin-lsp"
-else
-    rm -rf "${LSP_DIR:?}/kotlin-language-server"
-    KOTLIN_LSP_URL="https://download.jetbrains.com/language-server/kotlin-server/${KOTLIN_LSP_VERSION}/kotlin-server-${KOTLIN_LSP_VERSION}.tar.gz"
-    echo "[kotlin-lsp] Downloading JetBrains' Kotlin LSP $KOTLIN_LSP_VERSION"
-    KOTLIN_TMP=$(mktemp -d)
-    # The archive holds a single `kotlin-server-<version>/` root; `kotlin-lsp/` becomes it.
-    if fetch_verified "$KOTLIN_LSP_URL" "$KOTLIN_TMP/kotlin-lsp.tar.gz" && \
-       tar -xzf "$KOTLIN_TMP/kotlin-lsp.tar.gz" -C "$KOTLIN_TMP"; then
-        rm -rf "${LSP_DIR:?}/kotlin-lsp"
-        mkdir -p "$LSP_DIR"
-        mv "$KOTLIN_TMP/kotlin-server-$KOTLIN_LSP_VERSION" "$LSP_DIR/kotlin-lsp"
-        printf '%s\n' "$KOTLIN_LSP_VERSION" > "$LSP_DIR/kotlin-lsp/.version"
-        DOWNLOADED["kotlin-lsp"]="$KOTLIN_LSP_VERSION"
-        echo "[kotlin-lsp] ✓ Downloaded successfully"
-    else
-        FAILED["kotlin-lsp"]="download failed"
-        echo "[kotlin-lsp] ✗ Failed to download"
-    fi
-    rm -rf "${KOTLIN_TMP:?}"
-fi
+# 12. Kotlin - kotlin-lsp (JetBrains' Kotlin LSP): not packaged. JetBrains'
+# builds expire some weeks after their release (registry.json says
+# `builds_expire`), so a packaged one would stop starting while the mirror
+# still served it; Devscriptor installs the current build from JetBrains
+# instead. An earlier download's copy, and a kotlin-language-server install,
+# a server Devscriptor does not use, are removed so that neither is packaged.
+rm -rf "${LSP_DIR:?}/kotlin-lsp" "${LSP_DIR:?}/kotlin-language-server"
+echo "[kotlin-lsp] Not packaged: its builds expire, and Devscriptor installs the current one"
 
 # 13. Scala - metals
 # A Coursier launcher for the build registry.json pins (direct installs make the

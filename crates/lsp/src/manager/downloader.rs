@@ -498,11 +498,12 @@ pub async fn download_server(
     install_dir: &Path,
     progress: Option<&dyn DownloadProgress>,
 ) -> Result<PathBuf> {
-    // Tier 1: the mirror. A server that comes with its
-    // toolchain is not taken from it: sourcekit-lsp runs only inside the
-    // Swift toolchain it belongs to, and a copy taken from a Linux PATH can be
-    // swiftly's proxy, which runs only where swiftly is set up.
-    if server_info.source.source_type != SourceType::System {
+    // Tier 1: the mirror, which does not package every server. One that
+    // comes with its toolchain is not taken from it: sourcekit-lsp runs only
+    // inside the Swift toolchain it belongs to, and a copy taken from a Linux
+    // PATH can be swiftly's proxy, which runs only where swiftly is set up.
+    // One whose builds expire comes from its publisher, at its latest build.
+    if server_info.is_mirrored() {
         debug!(
             "Attempting tier 1 (mirror) download for {}",
             server_info.name
@@ -588,29 +589,7 @@ async fn download_github_release(
         .ok_or_else(|| anyhow!("GitHub release source missing repo"))?;
 
     published_for(server_info, &platform_key())?;
-
-    // SECURITY: Validate repo format to prevent injection
-    if repo.contains('\0') || repo.contains('\n') || repo.contains('\r') {
-        return Err(anyhow!("Invalid repository format"));
-    }
-    if !repo.contains('/') || repo.starts_with('/') || repo.ends_with('/') {
-        return Err(anyhow!("Invalid repository format: expected 'owner/repo'"));
-    }
-    let parts: Vec<&str> = repo.split('/').collect();
-    if parts.len() != 2 {
-        return Err(anyhow!("Invalid repository format: expected 'owner/repo'"));
-    }
-    for part in &parts {
-        if part.is_empty() || part.len() > 39 {
-            return Err(anyhow!("Invalid repository component length"));
-        }
-        if !part
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-        {
-            return Err(anyhow!("Invalid repository component characters"));
-        }
-    }
+    validate_repo(repo)?;
 
     // A pinned version is fetched by its tag, which its pinned checksum is
     // for; otherwise the latest release.
@@ -623,36 +602,7 @@ async fn download_github_release(
         }
         _ => format!("https://api.github.com/repos/{repo}/releases/latest"),
     };
-
-    let response = LSP_HTTP_CLIENT
-        .get(&release_url)
-        .header("User-Agent", "devscriptor-lsp-manager")
-        .send()
-        .await
-        .and_then(reqwest::Response::error_for_status)
-        .context("Failed to fetch release info")?;
-
-    // SECURITY: Limit response size to prevent memory exhaustion
-    let content_length = response.content_length().unwrap_or(0);
-    if content_length > MAX_GITHUB_RESPONSE_SIZE as u64 {
-        return Err(anyhow!(
-            "GitHub API response too large: {content_length} bytes"
-        ));
-    }
-
-    let release_text = response
-        .text()
-        .await
-        .context("Failed to get release text")?;
-
-    // SECURITY: Check response size after reading
-    if release_text.len() > MAX_GITHUB_RESPONSE_SIZE {
-        return Err(anyhow!("GitHub API response exceeded maximum size"));
-    }
-
-    // SECURITY: Parse into strongly-typed struct with validation
-    let release: GitHubRelease =
-        serde_json::from_str(&release_text).context("Failed to parse release info")?;
+    let release = fetch_release(&release_url).await?;
 
     // SECURITY: Validate the parsed release data
     validate_github_release(&release)?;
@@ -713,6 +663,97 @@ async fn download_github_release(
     move_clang_resource_dir(install_dir).await?;
 
     Ok(install_dir.to_path_buf())
+}
+
+/// Refuse a repository that is not a plain `owner/repo`: it goes into the
+/// path of an API URL.
+fn validate_repo(repo: &str) -> Result<()> {
+    // SECURITY: Validate repo format to prevent injection
+    if repo.contains('\0') || repo.contains('\n') || repo.contains('\r') {
+        return Err(anyhow!("Invalid repository format"));
+    }
+    if !repo.contains('/') || repo.starts_with('/') || repo.ends_with('/') {
+        return Err(anyhow!("Invalid repository format: expected 'owner/repo'"));
+    }
+    let parts: Vec<&str> = repo.split('/').collect();
+    if parts.len() != 2 {
+        return Err(anyhow!("Invalid repository format: expected 'owner/repo'"));
+    }
+    for part in &parts {
+        if part.is_empty() || part.len() > 39 {
+            return Err(anyhow!("Invalid repository component length"));
+        }
+        if !part
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(anyhow!("Invalid repository component characters"));
+        }
+    }
+    Ok(())
+}
+
+/// The release GitHub's API answers `release_url` with, read within a size
+/// limit into a strict schema. Its tag and assets are the caller's to check.
+async fn fetch_release(release_url: &str) -> Result<GitHubRelease> {
+    let response = LSP_HTTP_CLIENT
+        .get(release_url)
+        .header("User-Agent", "devscriptor-lsp-manager")
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .context("Failed to fetch release info")?;
+
+    // SECURITY: Limit response size to prevent memory exhaustion
+    let content_length = response.content_length().unwrap_or(0);
+    if content_length > MAX_GITHUB_RESPONSE_SIZE as u64 {
+        return Err(anyhow!(
+            "GitHub API response too large: {content_length} bytes"
+        ));
+    }
+
+    let release_text = response
+        .text()
+        .await
+        .context("Failed to get release text")?;
+
+    // SECURITY: Check response size after reading
+    if release_text.len() > MAX_GITHUB_RESPONSE_SIZE {
+        return Err(anyhow!("GitHub API response exceeded maximum size"));
+    }
+
+    // SECURITY: Parse into strongly-typed struct with validation
+    serde_json::from_str(&release_text).context("Failed to parse release info")
+}
+
+/// The version of the latest build of a server that tracks it
+/// ([`ServerInfo::tracks_latest`]): the tag of its repository's latest
+/// release, less the source's `tag_prefix` (`kotlin-lsp/v263.7084.0` is
+/// 263.7084.0).
+pub async fn latest_version(server_info: &ServerInfo) -> Result<String> {
+    let name = &server_info.name;
+    let source = &server_info.source;
+    let repo = source.repo.as_deref().ok_or_else(|| {
+        anyhow!("{name}: the registry names no repository to find its latest build in")
+    })?;
+    validate_repo(repo)?;
+    let release = fetch_release(&format!(
+        "https://api.github.com/repos/{repo}/releases/latest"
+    ))
+    .await
+    .with_context(|| format!("{name}: the latest release of {repo} could not be read"))?;
+    let tag = release.tag_name.as_str();
+    source
+        .tag_prefix
+        .as_deref()
+        .map_or(Some(tag), |prefix| tag.strip_prefix(prefix))
+        .filter(|version| version.len() <= 100 && version != &"latest" && is_plain_tag(version))
+        .map(str::to_string)
+        .ok_or_else(|| {
+            anyhow!(
+                "{name}: the latest release of {repo} is tagged {tag:?}, which names no version"
+            )
+        })
 }
 
 /// The SHA-256 a release asset must match: the one the registry pins, else
@@ -1077,9 +1118,22 @@ async fn download_direct(
     install_dir: &Path,
     progress: Option<&dyn DownloadProgress>,
 ) -> Result<PathBuf> {
+    // A server that tracks its latest build fetches its latest release's.
+    let latest;
+    let server_info = if server_info.tracks_latest() {
+        latest = server_info.at_version(&latest_version(server_info).await?);
+        &latest
+    } else {
+        server_info
+    };
+
     // Nothing downloaded here runs unverified: what to fetch, and the checksum
     // it must match, are settled before anything is fetched.
-    let (url, expected) = direct_artifact(server_info, &platform_key())?;
+    let (url, checksum) = direct_artifact(server_info, &platform_key())?;
+    let expected = match checksum {
+        Checksum::Pinned(sha256) => sha256.to_string(),
+        Checksum::Published(checksum_url) => published_sha256(server_info, &checksum_url).await?,
+    };
     let filename = url
         .rsplit('/')
         .next()
@@ -1088,7 +1142,7 @@ async fn download_direct(
 
     let download_path = install_dir.join(filename);
     download_file(&url, &download_path, progress).await?;
-    if let Err(e) = verify_checksum(&download_path, expected) {
+    if let Err(e) = verify_checksum(&download_path, &expected) {
         tokio::fs::remove_file(&download_path).await.ok();
         return Err(e);
     }
@@ -1118,29 +1172,39 @@ fn published_for(server_info: &ServerInfo, platform: &str) -> Result<()> {
     ))
 }
 
+/// Where the SHA-256 a download must match comes from.
+#[derive(Debug, PartialEq, Eq)]
+enum Checksum<'a> {
+    /// The registry pins it.
+    Pinned(&'a str),
+    /// The publisher puts it at this URL, for a build the registry does not
+    /// pin.
+    Published(String),
+}
+
 /// The URL a download source fetches on `platform` (a key such as
-/// `linux-x86_64`), and the SHA-256 the file must match.
+/// `linux-x86_64`), and where the SHA-256 the file must match comes from.
 ///
-/// `{version}` becomes the pinned version. A source that lists `platforms`
-/// has a build for each: `{platform}` becomes the build's name, and the build
-/// carries its checksum. Any other source is one artifact for every platform,
-/// pinned by `expected_sha256`. A platform without a build, a missing
-/// checksum, or a placeholder left unfilled refuses the install.
-fn direct_artifact<'a>(server_info: &'a ServerInfo, platform: &str) -> Result<(String, &'a str)> {
+/// `{version}` becomes the source's version, which is the build's: a server
+/// that tracks its latest build is given it first
+/// ([`ServerInfo::at_version`]). A source that lists `platforms` has a build
+/// for each: `{platform}` becomes the build's name, and the build carries its
+/// checksum. Any other source is one artifact for every platform, pinned by
+/// `expected_sha256`. A build the registry pins no checksum for is checked
+/// against the one at the source's `checksum_url`. A platform without a
+/// build, no checksum, or a placeholder left unfilled refuses the install.
+fn direct_artifact<'a>(
+    server_info: &'a ServerInfo,
+    platform: &str,
+) -> Result<(String, Checksum<'a>)> {
     let name = &server_info.name;
     let source = &server_info.source;
     let url = source
         .url
         .as_deref()
         .ok_or_else(|| anyhow!("{name}: the download source names no URL"))?;
-    let (url, sha256) = if source.platforms.is_empty() {
-        let sha256 = source.expected_sha256.as_deref().ok_or_else(|| {
-            anyhow!(
-                "{name} was not installed: the registry pins no SHA-256 for it, so it \
-                 cannot be verified. Install {name} yourself; Devscriptor finds it on PATH."
-            )
-        })?;
-        (url.to_string(), sha256)
+    let (url, pinned) = if source.platforms.is_empty() {
+        (url.to_string(), source.expected_sha256.as_deref())
     } else {
         let build = source.platforms.get(platform).ok_or_else(|| {
             anyhow!(
@@ -1150,19 +1214,76 @@ fn direct_artifact<'a>(server_info: &'a ServerInfo, platform: &str) -> Result<(S
         })?;
         (
             url.replace("{platform}", &build.name),
-            build.sha256.as_str(),
+            build.sha256.as_deref(),
         )
     };
+    let checksum = match (pinned, source.checksum_url.as_deref()) {
+        (Some(sha256), _) => Checksum::Pinned(sha256),
+        (None, Some(checksum_url)) => Checksum::Published(checksum_url.to_string()),
+        (None, None) => {
+            return Err(anyhow!(
+                "{name} was not installed: the registry pins no SHA-256 for it, so it \
+                 cannot be verified. Install {name} yourself; Devscriptor finds it on PATH."
+            ));
+        }
+    };
     let url = match source.version.as_deref() {
-        Some(version) => url.replace("{version}", version),
-        None => url,
+        Some(version) if version != "latest" => url.replace("{version}", version),
+        _ => url,
     };
     if let Some(placeholder) = unfilled_placeholder(&url) {
         return Err(anyhow!(
             "{name}: the download URL leaves {placeholder} unfilled: {url}"
         ));
     }
-    Ok((url, sha256))
+    let checksum = match checksum {
+        Checksum::Published(checksum_url) => {
+            Checksum::Published(checksum_url.replace("{url}", &url))
+        }
+        pinned => pinned,
+    };
+    Ok((url, checksum))
+}
+
+/// Longest checksum file read: a SHA-256 and a file name.
+const MAX_CHECKSUM_FILE_BYTES: usize = 4096;
+
+/// The SHA-256 `server_info`'s publisher puts at `checksum_url` for its
+/// download ([`sha256_in`]).
+async fn published_sha256(server_info: &ServerInfo, checksum_url: &str) -> Result<String> {
+    let name = &server_info.name;
+    let unverifiable = |why: &dyn std::fmt::Display| {
+        anyhow!(
+            "{name} was not installed: its SHA-256 could not be read from {checksum_url} \
+             ({why}), so it cannot be verified"
+        )
+    };
+    let mut response = LSP_HTTP_CLIENT
+        .get(checksum_url)
+        .header("User-Agent", "devscriptor-lsp-manager")
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| unverifiable(&e))?;
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| unverifiable(&e))? {
+        body.extend_from_slice(&chunk);
+        if body.len() > MAX_CHECKSUM_FILE_BYTES {
+            return Err(unverifiable(&"the file is too large"));
+        }
+    }
+    sha256_in(&String::from_utf8_lossy(&body))
+        .ok_or_else(|| unverifiable(&"the file holds no SHA-256"))
+}
+
+/// The SHA-256 a checksum file holds: its first word, as `sha256sum` writes
+/// it (`<hex> *<file name>`).
+fn sha256_in(checksum_file: &str) -> Option<String> {
+    checksum_file
+        .split_whitespace()
+        .next()
+        .filter(|sha256| sha256.len() == 64 && sha256.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(str::to_ascii_lowercase)
 }
 
 /// The first `{…}` placeholder left in `url`, if any.
@@ -1853,7 +1974,7 @@ mod tests {
         ] {
             let (url, expected) = direct_artifact(&dart, platform).unwrap();
             assert_eq!(url, format!("{base}/dartsdk-{name}-release.zip"));
-            assert_eq!(expected, sha256, "{platform}");
+            assert_eq!(expected, Checksum::Pinned(sha256), "{platform}");
         }
 
         let error = direct_artifact(&dart, "linux-riscv64").unwrap_err();
@@ -1878,52 +1999,46 @@ mod tests {
             );
             assert_eq!(
                 expected,
-                "338e7e73d61836651ba2453919a0d34fa763eb4e7c03342092309bffb8934c64"
+                Checksum::Pinned(
+                    "338e7e73d61836651ba2453919a0d34fa763eb4e7c03342092309bffb8934c64"
+                )
             );
         }
     }
 
-    /// The Kotlin LSP is a build per platform, each with the checksum
-    /// JetBrains publishes beside it; macOS's are zips named `.sit`.
+    /// The Kotlin LSP is a build per platform of its latest version, each
+    /// checked against the SHA-256 JetBrains puts beside it; macOS's are zips
+    /// named `.sit`. Its version is found before its builds are resolved.
     #[test]
     fn the_kotlin_lsp_resolves_to_each_platforms_build() {
         let kotlin = server("kotlin-lsp");
-        let base = "https://download.jetbrains.com/language-server/kotlin-server/263.6379.0";
-        for (platform, file, sha256) in [
-            (
-                "linux-x86_64",
-                "kotlin-server-263.6379.0.tar.gz",
-                "ab8ca4455dc2fc5fe1a24db2bccc46c104254d2c465155c4251ee65df8f3f7cc",
-            ),
-            (
-                "linux-aarch64",
-                "kotlin-server-263.6379.0-aarch64.tar.gz",
-                "50999901ef8bcfa1e58561b6a8d782a72dea5620fcf92a64130807f8924a56fc",
-            ),
-            (
-                "macos-x86_64",
-                "kotlin-server-263.6379.0.sit",
-                "e69e0c9d27b915b2db9ee692ec08d097df1a394d9f21190457ef199f2905f77e",
-            ),
-            (
-                "macos-aarch64",
-                "kotlin-server-263.6379.0-aarch64.sit",
-                "ebef2e13cd4adc4ec9e04084b848000a3ec7a9d2917c64f269574ce2efe9ecad",
-            ),
-            (
-                "windows-x86_64",
-                "kotlin-server-263.6379.0.win.zip",
-                "72148fa0832c2a45a4b26c55f56197d8d8886bcdb732b910607efc5e2693b9df",
-            ),
+        assert!(kotlin.tracks_latest() && kotlin.builds_expire);
+        let error = direct_artifact(&kotlin, "linux-x86_64").unwrap_err();
+        assert!(
+            error.to_string().contains("leaves {version} unfilled"),
+            "{error}"
+        );
+
+        let kotlin = kotlin.at_version("263.7084.0");
+        let base = "https://download.jetbrains.com/language-server/kotlin-server/263.7084.0";
+        for (platform, file) in [
+            ("linux-x86_64", "kotlin-server-263.7084.0.tar.gz"),
+            ("linux-aarch64", "kotlin-server-263.7084.0-aarch64.tar.gz"),
+            ("macos-x86_64", "kotlin-server-263.7084.0.sit"),
+            ("macos-aarch64", "kotlin-server-263.7084.0-aarch64.sit"),
+            ("windows-x86_64", "kotlin-server-263.7084.0.win.zip"),
             (
                 "windows-aarch64",
-                "kotlin-server-263.6379.0-aarch64.win.zip",
-                "290f48cb564295239bb678bb66b1ebbd06755b14fd4890f3cdf822f41af011ef",
+                "kotlin-server-263.7084.0-aarch64.win.zip",
             ),
         ] {
-            let (url, expected) = direct_artifact(&kotlin, platform).unwrap();
+            let (url, checksum) = direct_artifact(&kotlin, platform).unwrap();
             assert_eq!(url, format!("{base}/{file}"));
-            assert_eq!(expected, sha256, "{platform}");
+            assert_eq!(
+                checksum,
+                Checksum::Published(format!("{base}/{file}.sha256")),
+                "{platform}"
+            );
         }
     }
 
@@ -1953,9 +2068,29 @@ mod tests {
         );
     }
 
+    /// A checksum file's SHA-256 is its first word; a file that starts with
+    /// anything else holds none.
+    #[test]
+    fn a_checksum_file_holds_its_sha256_first() {
+        let sha256 = "ae0c4b01e17ab73a4a5227a78ea99e6dcbe3e499600315b22759a4e4cddd11df";
+        assert_eq!(
+            sha256_in(&format!("{sha256} *kotlin-server-263.7084.0.tar.gz\n")).as_deref(),
+            Some(sha256)
+        );
+        assert_eq!(
+            sha256_in(&sha256.to_ascii_uppercase()).as_deref(),
+            Some(sha256)
+        );
+        assert_eq!(sha256_in("<html>Not Found</html>"), None);
+        assert_eq!(sha256_in(&sha256[..63]), None);
+        assert_eq!(sha256_in(""), None);
+    }
+
     /// Every pin in the registry is complete: a download resolves on every
     /// platform the mirror serves, a release with a pinned checksum pins its
-    /// version, and a download's builds fill its URL.
+    /// version, and a download's builds fill its URL. A download that tracks
+    /// its latest build pins none, and is checked against its publisher's
+    /// SHA-256.
     #[test]
     fn every_pinned_source_in_the_registry_resolves() {
         let registry = super::super::ServerRegistry::load().unwrap();
@@ -1970,17 +2105,29 @@ mod tests {
                         assert!(source.expected_sha256.is_none(), "{}", server.id);
                         assert!(source.url.as_deref().unwrap().contains("{platform}"));
                     }
+                    let tracks_latest = server.tracks_latest();
+                    let resolved = server.at_version("1.0.0");
+                    let server = if tracks_latest { &resolved } else { server };
                     for platform in [
                         "linux-x86_64",
                         "linux-aarch64",
                         "macos-aarch64",
                         "windows-x86_64",
                     ] {
-                        let (url, sha256) = direct_artifact(server, platform)
+                        let (url, checksum) = direct_artifact(server, platform)
                             .unwrap_or_else(|e| panic!("{} on {platform}: {e}", server.id));
                         assert!(url.starts_with("https://"), "{url}");
-                        assert_eq!(sha256.len(), 64, "{} on {platform}", server.id);
-                        assert!(sha256.bytes().all(|b| b.is_ascii_hexdigit()));
+                        match checksum {
+                            Checksum::Pinned(sha256) => {
+                                assert!(!tracks_latest, "{}: a pin of no build", server.id);
+                                assert_eq!(sha256.len(), 64, "{} on {platform}", server.id);
+                                assert!(sha256.bytes().all(|b| b.is_ascii_hexdigit()));
+                            }
+                            Checksum::Published(checksum_url) => {
+                                assert!(tracks_latest, "{}: an unpinned build", server.id);
+                                assert!(checksum_url.starts_with("https://"), "{checksum_url}");
+                            }
+                        }
                     }
                 }
                 SourceType::GithubRelease => {
@@ -2000,16 +2147,11 @@ mod tests {
     }
 
     /// The registry's pins are the checksums the publishers put beside their
-    /// files: `.sha256` for jdtls and the Kotlin LSP, `.sha256sum` for the
-    /// Dart SDK.
+    /// files: `.sha256` for jdtls, `.sha256sum` for the Dart SDK.
     #[tokio::test]
     #[ignore = "fetches the publishers' checksum files"]
     async fn pinned_checksums_match_the_publishers() {
-        for (id, sidecar) in [
-            ("jdtls", ".sha256"),
-            ("kotlin-lsp", ".sha256"),
-            ("dart-ls", ".sha256sum"),
-        ] {
+        for (id, sidecar) in [("jdtls", ".sha256"), ("dart-ls", ".sha256sum")] {
             let server = server(id);
             let mut platforms: Vec<&str> =
                 server.source.platforms.keys().map(String::as_str).collect();
@@ -2017,7 +2159,10 @@ mod tests {
                 platforms.push("linux-x86_64");
             }
             for platform in platforms {
-                let (url, pinned) = direct_artifact(&server, platform).unwrap();
+                let (url, Checksum::Pinned(pinned)) = direct_artifact(&server, platform).unwrap()
+                else {
+                    panic!("{id} on {platform}: no pinned checksum");
+                };
                 let published = LSP_HTTP_CLIENT
                     .get(format!("{url}{sidecar}"))
                     .send()
@@ -2033,6 +2178,32 @@ mod tests {
                     "{id} on {platform}"
                 );
             }
+        }
+    }
+
+    /// The Kotlin LSP's latest build is found in its repository's latest
+    /// release, and JetBrains puts the SHA-256 of each platform's build
+    /// beside it.
+    #[tokio::test]
+    #[ignore = "asks GitHub's API and JetBrains"]
+    async fn the_kotlin_lsps_latest_build_is_found_with_its_checksums() {
+        let kotlin = server("kotlin-lsp");
+        let version = latest_version(&kotlin).await.unwrap();
+        assert!(
+            version.split('.').count() == 3 && version.split('.').all(|n| n.parse::<u32>().is_ok()),
+            "{version}"
+        );
+        let kotlin = kotlin.at_version(&version);
+        for platform in kotlin.source.platforms.keys() {
+            let (_, Checksum::Published(checksum_url)) =
+                direct_artifact(&kotlin, platform).unwrap()
+            else {
+                panic!("{platform}: the Kotlin LSP pins a checksum");
+            };
+            let sha256 = published_sha256(&kotlin, &checksum_url)
+                .await
+                .unwrap_or_else(|e| panic!("{platform}: {e:#}"));
+            assert_eq!(sha256.len(), 64, "{platform}");
         }
     }
 
@@ -2067,9 +2238,9 @@ mod tests {
         }
     }
 
-    /// Each pinned download installs from its publisher, as `lsp setup` does
-    /// where the mirror has no build: verified, unpacked, lifted into place,
-    /// its binary executable.
+    /// Each download installs from its publisher, as `lsp setup` does where
+    /// the mirror has no build: verified, unpacked, lifted into place, its
+    /// binary executable. The Kotlin LSP's is its latest build.
     #[tokio::test]
     #[ignore = "downloads about 650 MB from the publishers"]
     async fn pinned_downloads_install_from_their_publishers() {

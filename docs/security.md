@@ -56,7 +56,7 @@ fails the download (fail-closed):
 | Embedding model files | SHA-256 of each of the four files, pinned in the code | `crates/core/src/embeddings/model_fetch.rs` |
 | Embedding model revision | Hugging Face downloads name an immutable commit (`516f4baf…`), never `main` | `crates/core/src/embeddings/model_fetch.rs` |
 | Language server from the mirror | SHA-256 of the archive, pinned in the build with the mirror release | `crates/lsp/src/manager/mirror.json`, `downloader.rs` |
-| Language server from GitHub or its publisher | SHA-256 GitHub publishes for the release asset, or the one the registry pins | `crates/lsp/src/manager/downloader.rs` |
+| Language server from GitHub or its publisher | SHA-256 GitHub publishes for the release asset, the one the registry pins, or, for kotlin-lsp's latest build, the one JetBrains publishes beside it | `crates/lsp/src/manager/downloader.rs` |
 
 `DEVSCRIPTOR_SKIP_MODEL_VERIFY=1` turns off the model checks, for model files
 provisioned out of band; set it only for files verified by other means. Archive

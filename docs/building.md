@@ -311,6 +311,11 @@ and the server is installed from its own source instead.
 `DEVSCRIPTOR_LSP_MIRROR_URL` fetches the archives from another place that holds
 them side by side, such as a copy of the release.
 
+The mirror carries every server but two: sourcekit-lsp comes with the Swift
+toolchain, and kotlin-lsp's builds stop starting some weeks after their release
+(`builds_expire` in the registry), so it is installed from JetBrains at its
+latest build.
+
 Every archive carries its server's license files, which `license_files` in
 `crates/lsp/src/manager/registry.json` names: a file the server ships (an npm
 package's `LICENSE`, the Dart SDK's) is copied, and one it does not (a bare
@@ -324,7 +329,7 @@ The platforms are `linux-x86_64`, `linux-aarch64`, `macos-x86_64`,
 | Script | What it does |
 | --- | --- |
 | `install-dependencies.{sh,ps1}` | Installs the toolchains the downloads use (Node.js, Go, .NET, Ruby, Coursier, PHP and more): as root on Linux, as the user with Homebrew on macOS, with winget on Windows |
-| `download-lsp-servers.{sh,ps1}` | Fetches the 20 packaged servers (all but sourcekit-lsp) into `lsp-servers/`, at the versions the registry pins, release downloads checked against their published or pinned SHA-256; one that cannot be fetched is reported and the others go on |
+| `download-lsp-servers.{sh,ps1}` | Fetches the 19 packaged servers (all but sourcekit-lsp and kotlin-lsp) into `lsp-servers/`, at the versions the registry pins, release downloads checked against their published or pinned SHA-256; one that cannot be fetched is reported and the others go on |
 | `package-lsp-servers.{sh,ps1}` | Packs each server in `lsp-servers/` into `lsp-packages/<id>-<version>-<platform>.tar.gz` (`.zip` on Windows) with its license files under `LICENSES/`, and writes `sha256sums-<platform>.txt` and `manifest-<platform>.json` |
 
 ### Publishing the mirror
@@ -337,12 +342,12 @@ Actions tab, publishes a release of the mirror from GitHub's runners:
 2. On each platform's runner, it sets up the toolchains the downloads use, runs
    the platform's scripts (all but the Windows `install-dependencies.ps1`, which
    works through winget, which the runner has not), pins the new manifest,
-   checks that it holds every server the registry installs on the platform,
+   checks that it holds every server the mirror carries for the platform,
    serves the packages from a local web server, and installs each from there
    with the downloader's own code (`crates/lsp/tests/mirror_packages.rs`). Then
    it uploads them to the draft.
 3. Once every platform has, it pins the five manifests together and runs the
-   mirror's tests: every server the registry installs on a platform is packaged
+   mirror's tests: every server the mirror carries for a platform is packaged
    for it, at the build the registry pins. Only then does it publish the release,
    which never becomes the latest release: that stays Devscriptor's.
 

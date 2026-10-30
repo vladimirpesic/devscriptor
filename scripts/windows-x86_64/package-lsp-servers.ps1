@@ -166,8 +166,9 @@ function New-Manifest {
 function Test-AgainstRegistry {
     $manifestFile = Join-Path $OutputDir "manifest-$Platform.json"
     $regServers = $script:RegistryServers
-    # A server that comes with its toolchain (sourcekit-lsp) is never packaged.
-    $regIds = $regServers.PSObject.Properties | Where-Object { $_.Value.source.type -ne "system" } | ForEach-Object { $_.Name }
+    # A server that comes with its toolchain (sourcekit-lsp), or whose builds
+    # expire (kotlin-lsp), is never packaged.
+    $regIds = $regServers.PSObject.Properties | Where-Object { $_.Value.source.type -ne "system" -and -not $_.Value.builds_expire } | ForEach-Object { $_.Name }
     $man = Get-Content $manifestFile -Raw | ConvertFrom-Json
     $manIds = $man.servers.PSObject.Properties.Name
 

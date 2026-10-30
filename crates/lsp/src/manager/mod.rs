@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::lsp_architecture::prerequisites::{Prerequisite, check_prerequisites_async};
 
@@ -218,7 +218,37 @@ impl LspManager {
 
         info!("Installing LSP server: {}", server_info.name);
 
-        if !self.needs_install(server_id) {
+        // A server whose builds expire is installed at its latest build, and
+        // an install of an earlier one is replaced: it stops starting some
+        // weeks after its release. Where the latest cannot be found, an
+        // install is kept as it is.
+        let latest;
+        let mut superseded = None;
+        let server_info = if server_info.builds_expire && server_info.tracks_latest() {
+            match downloader::latest_version(server_info).await {
+                Ok(version) => {
+                    let recorded = self.get_installed_version(server_id).ok().flatten();
+                    if self.is_installed(server_id) && recorded.as_deref() != Some(version.as_str())
+                    {
+                        superseded = Some(recorded.unwrap_or_else(|| "?".into()));
+                    }
+                    latest = server_info.at_version(&version);
+                    &latest
+                }
+                Err(e) if self.is_installed(server_id) => {
+                    warn!(
+                        "Keeping the installed {}: its latest build could not be found: {e:#}",
+                        server_info.name
+                    );
+                    return Ok(InstallationResult::AlreadyInstalled);
+                }
+                Err(e) => return Err(e),
+            }
+        } else {
+            server_info
+        };
+
+        if superseded.is_none() && !self.needs_install(server_id) {
             return Ok(InstallationResult::AlreadyInstalled);
         }
 
@@ -252,10 +282,17 @@ impl LspManager {
             return Ok(InstallationResult::MissingPrerequisite(missing.join(", ")));
         }
 
-        // An install of another build than the pinned one, or one built for
-        // another Ruby, is replaced, not added to: its files would mix with
-        // the new build's.
-        if self.is_outdated(server_id) {
+        // An install of another build than the pinned or the latest one, or
+        // one built for another Ruby, is replaced, not added to: its files
+        // would mix with the new build's.
+        if let Some(recorded) = superseded {
+            info!(
+                "Replacing {} {recorded} with its latest build, {}",
+                server_info.name,
+                server_info.source.version.as_deref().unwrap_or("?")
+            );
+            std::fs::remove_dir_all(&server_dir)?;
+        } else if self.is_outdated(server_id) {
             let recorded = self.get_installed_version(server_id).ok().flatten();
             info!(
                 "Replacing {} {} with the pinned {}",

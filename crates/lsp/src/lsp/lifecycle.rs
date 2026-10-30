@@ -30,6 +30,7 @@ const STDERR_CAPTURE_LINES: usize = 20;
 /// Describe a server that exited before completing the `initialize` handshake,
 /// quoting its stderr so the cause is visible in the error itself.
 async fn exited_during_init_message(
+    language_id: &str,
     status: std::io::Result<std::process::ExitStatus>,
     stderr_head: &std::sync::Mutex<Vec<String>>,
 ) -> String {
@@ -52,8 +53,28 @@ async fn exited_during_init_message(
     if detail.trim().is_empty() {
         format!("server {how} during initialization (no stderr output)")
     } else {
-        format!("server {how} during initialization: {}", detail.trim())
+        format!(
+            "server {how} during initialization: {}{}",
+            detail.trim(),
+            expired_build_hint(language_id, &detail)
+        )
     }
+}
+
+/// What to do about a server whose build has expired, as its `detail` (what
+/// it printed) says: JetBrains' Kotlin LSP builds stop starting some weeks
+/// after their release, with "This build of kotlin-server has expired".
+/// Installing the server again brings it up to its latest build.
+fn expired_build_hint(language_id: &str, detail: &str) -> String {
+    if !(detail.contains("build of") && detail.contains("has expired")) {
+        return String::new();
+    }
+    let stop = if detail.trim_end().ends_with('.') {
+        ""
+    } else {
+        "."
+    };
+    format!("{stop} `devscriptor lsp setup {language_id}` installs its current build.")
 }
 
 /// Information about a spawned LSP server.
@@ -300,7 +321,8 @@ impl LspServer {
                             return Err(LspError::ServerSpawnFailed {
                                 language_id: config.language_id.clone(),
                                 command: config.command.clone(),
-                                error: exited_during_init_message(status, &stderr_head).await,
+                                error: exited_during_init_message(&config.language_id, status, &stderr_head)
+                                    .await,
                             });
                         }
                         // Still running, but no server: stopped, not left behind.
@@ -316,7 +338,8 @@ impl LspServer {
                 return Err(LspError::ServerSpawnFailed {
                     language_id: config.language_id.clone(),
                     command: config.command.clone(),
-                    error: exited_during_init_message(status, &stderr_head).await,
+                    error: exited_during_init_message(&config.language_id, status, &stderr_head)
+                                    .await,
                 });
             }
         };
@@ -1212,6 +1235,29 @@ mod tests {
         assert_eq!(
             foreign_position_encoding(&capabilities),
             Some(&lsp_types::PositionEncodingKind::UTF8)
+        );
+    }
+
+    /// A server that says its build has expired is to be installed again,
+    /// which brings it up to its current build.
+    #[test]
+    fn an_expired_build_is_to_be_installed_again() {
+        let expired = "Log file: /c/kotlin-lsp/system/log/intellij-server.log; \
+                       This build of kotlin-server has expired.; The IDE will now close.";
+        assert_eq!(
+            expired_build_hint("kotlin", expired),
+            " `devscriptor lsp setup kotlin` installs its current build."
+        );
+        let unstopped = format!(
+            "{expired}; Please download a new build from https://github.com/kotlin/kotlin-lsp"
+        );
+        assert_eq!(
+            expired_build_hint("kotlin", &unstopped),
+            ". `devscriptor lsp setup kotlin` installs its current build."
+        );
+        assert_eq!(
+            expired_build_hint("kotlin", "Error: JAVA_HOME is not set"),
+            ""
         );
     }
 }

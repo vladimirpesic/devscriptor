@@ -188,47 +188,30 @@ fn downloaders_package_the_builds_the_registry_pins() {
     let jdtls = &registry.get_server("jdtls").unwrap().source;
     let jdtls_version = jdtls.version.as_deref().unwrap();
     let jdtls_url = jdtls.url.as_deref().unwrap();
-    let kotlin = &registry.get_server("kotlin-lsp").unwrap().source;
-    let kotlin_version = kotlin.version.as_deref().unwrap();
-    let kotlin_url = kotlin.url.as_deref().unwrap();
     let dart = &registry.get_server("dart-ls").unwrap().source;
     let dart_version = dart.version.as_deref().unwrap();
 
-    for (script, platform) in DOWNLOADER_PLATFORMS {
+    for (script, _) in DOWNLOADER_PLATFORMS {
         let body = read(script);
         let powershell = script.ends_with(".ps1");
-        let (jdtls_variable, jdtls_assignment, kotlin_variable, kotlin_assignment, dart_default) =
-            if powershell {
-                (
-                    "$jdtlsVer",
-                    format!("$jdtlsVer = \"{jdtls_version}\""),
-                    "$kotlinVer",
-                    format!("$kotlinVer = \"{kotlin_version}\""),
-                    format!("$dartVersion = \"{dart_version}\""),
-                )
-            } else {
-                (
-                    "${JDTLS_VERSION}",
-                    format!("JDTLS_VERSION=\"{jdtls_version}\""),
-                    "${KOTLIN_LSP_VERSION}",
-                    format!("KOTLIN_LSP_VERSION=\"{kotlin_version}\""),
-                    format!("DART_SDK_VERSION=\"${{DART_SDK_VERSION:-{dart_version}}}\""),
-                )
-            };
+        let (jdtls_variable, jdtls_assignment, dart_default) = if powershell {
+            (
+                "$jdtlsVer",
+                format!("$jdtlsVer = \"{jdtls_version}\""),
+                format!("$dartVersion = \"{dart_version}\""),
+            )
+        } else {
+            (
+                "${JDTLS_VERSION}",
+                format!("JDTLS_VERSION=\"{jdtls_version}\""),
+                format!("DART_SDK_VERSION=\"${{DART_SDK_VERSION:-{dart_version}}}\""),
+            )
+        };
         assert!(
             body.contains(&jdtls_assignment),
             "{script} must package jdtls {jdtls_version}, the registry's"
         );
         let url = jdtls_url.replace("{version}", jdtls_variable);
-        assert!(body.contains(&url), "{script} must download {url}");
-
-        assert!(
-            body.contains(&kotlin_assignment),
-            "{script} must package the Kotlin LSP {kotlin_version}, the registry's"
-        );
-        let url = kotlin_url
-            .replace("{version}", kotlin_variable)
-            .replace("{platform}", &kotlin.platforms[*platform].name);
         assert!(body.contains(&url), "{script} must download {url}");
 
         assert!(
@@ -238,22 +221,20 @@ fn downloaders_package_the_builds_the_registry_pins() {
     }
 }
 
-/// jdtls and the Kotlin LSP are checked against the SHA-256 their publishers
-/// put beside them, and nothing is packaged without it.
+/// jdtls is checked against the SHA-256 its publisher puts beside it, and
+/// nothing is packaged without it.
 #[test]
-fn jdtls_and_the_kotlin_lsp_are_verified_when_packaged() {
+fn jdtls_is_verified_when_packaged() {
     for script in DOWNLOADERS {
         let body = read(script);
         let verified = if script.ends_with(".ps1") {
             [
                 "Get-Verified \"https://download.eclipse.org/jdtls/",
-                "Get-Verified \"https://download.jetbrains.com/",
                 "if (-not $expected -or ($expected -ne $actual))",
             ]
         } else {
             [
                 "fetch_verified \"$JDTLS_URL\"",
-                "fetch_verified \"$KOTLIN_LSP_URL\"",
                 "if [ -z \"$expected\" ] || [ \"$expected\" != \"$actual\" ]",
             ]
         };
@@ -264,6 +245,40 @@ fn jdtls_and_the_kotlin_lsp_are_verified_when_packaged() {
             !body.contains("jdt-language-server-latest"),
             "{script} must not fall back to an unpinned jdtls"
         );
+    }
+}
+
+/// A server whose builds expire is not packaged: a packaged build would stop
+/// starting while the mirror still served it. A downloader removes an
+/// earlier download's copy, so that it is not packaged either.
+#[test]
+fn a_server_whose_builds_expire_is_not_packaged() {
+    let registry = ServerRegistry::load().unwrap();
+    let expiring: Vec<&str> = registry
+        .list_servers()
+        .into_iter()
+        .filter(|server| server.builds_expire)
+        .map(|server| server.id.as_str())
+        .collect();
+    assert_eq!(expiring, ["kotlin-lsp"]);
+    for script in DOWNLOADERS {
+        let body = read(script);
+        for id in &expiring {
+            let removed = if script.ends_with(".ps1") {
+                format!("foreach ($retired in @(\"{id}\"")
+            } else {
+                format!("rm -rf \"${{LSP_DIR:?}}/{id}\"")
+            };
+            assert!(body.contains(&removed), "{script} must remove {id}");
+            assert!(
+                body.contains(&format!("[{id}] Not packaged: its builds expire")),
+                "{script} must say why {id} is not packaged"
+            );
+            assert!(
+                !body.contains("download.jetbrains.com/language-server"),
+                "{script} must not download {id}"
+            );
+        }
     }
 }
 

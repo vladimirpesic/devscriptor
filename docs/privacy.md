@@ -61,7 +61,10 @@ installs servers.
   package manager is installed with it (npm, `go install`, `dotnet tool`, gem,
   Coursier), which contacts that package registry, and the others come from their
   GitHub releases or publishers, checked against published or pinned SHA-256
-  hashes. `DEVSCRIPTOR_LSP_MIRROR_URL` overrides the mirror.
+  hashes. kotlin-lsp, which is not on the mirror, comes from JetBrains
+  (`download.jetbrains.com`), at the build of the latest release GitHub's API
+  names for `Kotlin/kotlin-lsp`. `DEVSCRIPTOR_LSP_MIRROR_URL` overrides the
+  mirror.
 
 ### 3. Update check (the VS Code extension, on request)
 

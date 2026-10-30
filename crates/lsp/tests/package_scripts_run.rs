@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use devscriptor_lsp::manager::registry::{ServerRegistry, SourceType};
+use devscriptor_lsp::manager::registry::ServerRegistry;
 
 const LINUX_PACKAGERS: &[(&str, &str)] = &[
     (
@@ -34,13 +34,13 @@ fn repo_root() -> PathBuf {
 }
 
 /// The registry's servers that are packaged: all but those that come with
-/// their toolchain.
+/// their toolchain or whose builds expire.
 fn packaged_ids() -> Vec<String> {
     let registry = ServerRegistry::load().unwrap();
     let mut ids: Vec<String> = registry
         .servers
         .values()
-        .filter(|s| s.source.source_type != SourceType::System)
+        .filter(|s| s.is_mirrored())
         .map(|s| s.id.clone())
         .collect();
     ids.sort();

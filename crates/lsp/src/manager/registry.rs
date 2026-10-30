@@ -76,12 +76,22 @@ pub struct ServerInfo {
     pub name: String,
     pub languages: Vec<String>,
     pub source: SourceInfo,
+
+    /// Whether the server's builds stop starting some weeks after their
+    /// release: JetBrains' Kotlin LSP is a pre-release that expires. Such a
+    /// server tracks its latest build (its `version` is `latest`), is not
+    /// mirrored, where an expired build would go on being served, and is
+    /// brought up to its latest build when it is installed again.
+    #[serde(default)]
+    pub builds_expire: bool,
+
     pub size_mb: u32,
     pub bin_path: String,
     pub license: String,
 
     /// The server's license files, which the packaging scripts put in its
-    /// mirror archive, under `LICENSES/`.
+    /// mirror archive, under `LICENSES/`. A server that is not mirrored
+    /// ([`Self::is_mirrored`]) names none.
     #[serde(default)]
     pub license_files: Vec<LicenseFile>,
 
@@ -159,6 +169,31 @@ impl ServerInfo {
         }
     }
 
+    /// Whether the mirror packages the server: one that comes with its
+    /// toolchain, or whose builds expire, is installed from elsewhere.
+    #[must_use]
+    pub fn is_mirrored(&self) -> bool {
+        self.source.source_type != SourceType::System && !self.builds_expire
+    }
+
+    /// Whether the server installs its publisher's latest build, which
+    /// [`downloader::latest_version`](super::downloader::latest_version)
+    /// finds.
+    #[must_use]
+    pub fn tracks_latest(&self) -> bool {
+        self.source.source_type == SourceType::Download
+            && self.source.version.as_deref() == Some("latest")
+    }
+
+    /// This server at `version`, which its install fetches and records: the
+    /// latest build of a server that [`tracks_latest`](Self::tracks_latest).
+    #[must_use]
+    pub fn at_version(&self, version: &str) -> Self {
+        let mut server = self.clone();
+        server.source.version = Some(version.to_string());
+        server
+    }
+
     /// Whether `recorded`, the version an install records in its `.version`,
     /// is outdated: another build than the one this server pins. An install
     /// that records none (one placed by hand) is taken as it is.
@@ -224,8 +259,19 @@ pub struct SourceInfo {
     pub package: Option<String>,
     pub url: Option<String>,
     /// The pinned version (a GitHub release's tag), or none or `latest` for
-    /// the latest release.
+    /// the latest release. A download that tracks its latest build finds it
+    /// in `repo`'s latest release.
     pub version: Option<String>,
+    /// What comes before the version in the tags of `repo`'s releases, for a
+    /// download that tracks its latest build: `kotlin-lsp/v` in the Kotlin
+    /// LSP's `kotlin-lsp/v263.7084.0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag_prefix: Option<String>,
+    /// Where the publisher puts the SHA-256 of a download the registry pins
+    /// none for, `{url}` being the download's own URL: JetBrains puts each
+    /// Kotlin LSP build's beside it, at `{url}.sha256`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checksum_url: Option<String>,
     pub asset_pattern: Option<String>,
     /// Expected SHA-256 checksum of the downloaded artifact (hex-encoded),
     /// where one artifact serves every platform.
@@ -260,8 +306,10 @@ pub struct PlatformBuild {
     /// `dartsdk-linux-x64-release.zip`, `-aarch64.tar.gz` in the Kotlin LSP's
     /// `kotlin-server-<version>-aarch64.tar.gz`).
     pub name: String,
-    /// SHA-256 of the build (hex-encoded).
-    pub sha256: String,
+    /// SHA-256 of the build (hex-encoded), where the registry pins the build;
+    /// otherwise the source's `checksum_url` has it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// Type of source for an LSP server
@@ -286,7 +334,8 @@ mod tests {
     /// Every packaged server names its license files, each either a file of
     /// the installed server or one at a commit of its publisher's repository
     /// with the SHA-256 it must match, under a name no other of its files
-    /// has; a server that comes with its toolchain is not packaged.
+    /// has; a server that comes with its toolchain, or whose builds expire,
+    /// is not packaged.
     #[test]
     fn every_packaged_server_names_its_license_files() {
         let hex = |s: &str, len: usize| {
@@ -297,7 +346,7 @@ mod tests {
         let registry = ServerRegistry::load().unwrap();
         for server in registry.list_servers() {
             let id = &server.id;
-            if server.source.source_type == SourceType::System {
+            if !server.is_mirrored() {
                 assert!(server.license_files.is_empty(), "{id}");
                 continue;
             }
@@ -590,5 +639,52 @@ mod tests {
         let pyright = registry.get_server("pyright").unwrap();
         assert_eq!(pyright.pinned_build(), None);
         assert!(!pyright.outdated_by(Some("0.1.0")));
+    }
+
+    /// A server whose builds expire tracks its latest build, found in its
+    /// repository's releases and checked against the SHA-256 its publisher
+    /// puts beside it, and is not mirrored; every other download pins its
+    /// build.
+    #[test]
+    fn a_server_whose_builds_expire_tracks_its_latest_build() {
+        let registry = ServerRegistry::load().unwrap();
+        for server in registry.list_servers() {
+            let id = &server.id;
+            let source = &server.source;
+            assert_eq!(server.builds_expire, server.tracks_latest(), "{id}");
+            if !server.builds_expire {
+                assert!(source.tag_prefix.is_none(), "{id}");
+                assert!(source.checksum_url.is_none(), "{id}");
+                continue;
+            }
+            assert!(!server.is_mirrored(), "{id}");
+            assert_eq!(server.pinned_build(), None, "{id}");
+            assert!(source.repo.is_some() && source.tag_prefix.is_some(), "{id}");
+            assert!(
+                source
+                    .checksum_url
+                    .as_deref()
+                    .is_some_and(|url| url.contains("{url}")),
+                "{id}"
+            );
+            assert!(source.expected_sha256.is_none(), "{id}");
+            assert!(
+                source
+                    .platforms
+                    .values()
+                    .all(|build| build.sha256.is_none()),
+                "{id}"
+            );
+        }
+        let kotlin = registry.get_server("kotlin-lsp").unwrap();
+        assert!(kotlin.builds_expire);
+        assert!(
+            !kotlin.outdated_by(Some("263.6379.0")),
+            "kept until installed again"
+        );
+        assert_eq!(
+            kotlin.at_version("263.7084.0").pinned_build(),
+            Some("263.7084.0")
+        );
     }
 }

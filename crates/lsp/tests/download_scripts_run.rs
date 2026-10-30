@@ -17,7 +17,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use devscriptor_lsp::manager::registry::{ServerInfo, ServerRegistry, SourceType};
+use devscriptor_lsp::manager::registry::{ServerInfo, ServerRegistry};
 
 /// Each Unix downloader with the platform it packages for.
 const UNIX_DOWNLOADERS: &[(&str, &str)] = &[
@@ -164,13 +164,14 @@ fn offline(tools: &Path) {
 }
 
 /// The server ids the downloader for `platform` packages: all but those that
-/// come with their toolchain, and those whose release has no build for it.
+/// come with their toolchain or whose builds expire, and those whose release
+/// has no build for it.
 fn packaged_for(platform: &str) -> Vec<String> {
     let registry = ServerRegistry::load().unwrap();
     let mut ids: Vec<String> = registry
         .servers
         .values()
-        .filter(|s: &&ServerInfo| s.source.source_type != SourceType::System)
+        .filter(|s: &&ServerInfo| s.is_mirrored())
         .filter(|s| {
             s.source.published_for.is_empty()
                 || s.source.published_for.iter().any(|p| p == platform)

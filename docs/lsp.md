@@ -76,9 +76,10 @@ finds:
    `lsp setup` installs; `<cache>` is `~/.cache` on Linux, `~/Library/Caches` on
    macOS, `%LOCALAPPDATA%` on Windows), then a `bundle/lsp-servers/` directory
    beside the executable (or one or two directories above it, or in the working
-   directory). An install of jdtls, kotlin-lsp or the Dart SDK records its version;
-   one at another version than the registry pins is passed over, with a warning, and
-   `lsp setup` replaces it.
+   directory). An install of jdtls or the Dart SDK records its version; one at
+   another version than the registry pins is passed over, with a warning, and
+   `lsp setup` replaces it. kotlin-lsp records its build too, which is used until
+   `lsp setup kotlin-lsp` replaces it with a later one.
 3. **The system**: the server's command on the `PATH`, and known locations such as
    rustup's toolchains, `~/go/bin`, `~/.npm-global/bin`, LLVM's directories and
    Xcode's toolchain.
@@ -112,10 +113,17 @@ the platform:
   `go install`, `dotnet tool`, gem, Coursier;
 - rust-analyzer, clangd and phpactor come from their GitHub releases, checked
   against the SHA-256 GitHub publishes for each asset;
-- jdtls, kotlin-lsp and the Dart SDK come from Eclipse, JetBrains and Google at the
-  version the registry pins, checked against the SHA-256 the registry pins (taken
-  from the checksum file each publisher puts beside its downloads); the mirror's
-  build of these three is taken only when it is that version.
+- jdtls and the Dart SDK come from Eclipse and Google at the version the registry
+  pins, checked against the SHA-256 the registry pins (taken from the checksum file
+  each publisher puts beside its downloads); the mirror's build of these two is
+  taken only when it is that version.
+
+kotlin-lsp is never taken from the mirror: JetBrains' builds stop starting some
+weeks after their release. It comes from JetBrains at its latest build, the one
+of the latest release of [Kotlin/kotlin-lsp](https://github.com/Kotlin/kotlin-lsp),
+checked against the SHA-256 JetBrains puts beside each download. `lsp setup
+kotlin-lsp` (or `kotlin`) installs a later build in place of an earlier one, and
+a build that has expired says so when it fails to start, with that command.
 
 `devscriptor lsp setup <server>…` installs the servers named instead, by id
 (`bash-language-server`) or language (`bash`), whether a project needs them or

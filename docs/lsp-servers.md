@@ -15,8 +15,7 @@ reports what a missing server lacks.
 - [Swift](#swift)
 - [Troubleshooting](#troubleshooting)
 
-Sizes are those of a Linux x86_64 install made by
-`scripts/linux-x86_64/download-lsp-servers.sh`.
+Sizes are those of a Linux x86_64 install.
 
 ## At a glance
 
@@ -31,7 +30,7 @@ Sizes are those of a Linux x86_64 install made by
 | `graphql-language-service` | GraphQL | npm (`graphql-language-service-cli`) | 3.5.0 | Node.js 18+ |
 | `html-languageserver` | HTML | npm (`vscode-langservers-extracted`) | 4.10.0 | Node.js 18+ |
 | `jdtls` | Java | Eclipse milestone archive | 1.61.0 | Java 21+ and Python 3 |
-| `kotlin-lsp` | Kotlin | JetBrains' archive | 263.6379.0 | Nothing (it bundles its Java runtime) |
+| `kotlin-lsp` | Kotlin | JetBrains' archive | latest | Nothing (it bundles its Java runtime) |
 | `metals` | Scala | Coursier | 1.6.7 | Java |
 | `nomicfoundation-solc` | Solidity | npm (`@nomicfoundation/solidity-language-server`) | 0.8.25 | Node.js 18+ |
 | `phpactor` | PHP | GitHub release | latest | PHP 8.2+ with mbstring, posix, tokenizer; not on Windows |
@@ -97,14 +96,19 @@ the newest release at install time.
 
 ### kotlin-lsp (Kotlin)
 
-- **Size:** about 1.2 GB unpacked, from a ~360 MB download.
+- **Size:** about 510 MB unpacked, from a ~350 MB download.
 - **Binary:** `bin/intellij-server`, started as
   `intellij-server --stdio --system-path=<cache>/devscriptor/kotlin-lsp`, where it
   keeps its caches and indexes.
-- **Source:** JetBrains' standalone Kotlin LSP archive for the platform, at the
-  version the registry pins, checked against the SHA-256 JetBrains publishes beside
-  it.
+- **Source:** JetBrains' standalone Kotlin LSP archive for the platform, at its
+  latest build (that of the latest release of
+  [Kotlin/kotlin-lsp](https://github.com/Kotlin/kotlin-lsp)), checked against the
+  SHA-256 JetBrains publishes beside it. It is not on the Devscriptor mirror.
 - **Needs:** nothing: the archive bundles the JetBrains Runtime it runs on.
+- **Updates:** a build stops starting some weeks after its release, saying "This
+  build of kotlin-server has expired"; Devscriptor's error then names the command
+  that installs the current build, `devscriptor lsp setup kotlin`, which replaces
+  an install of an earlier one.
 - **Why this server:** kotlin-language-server is deprecated and does not start on
   Java 25 or newer.
 

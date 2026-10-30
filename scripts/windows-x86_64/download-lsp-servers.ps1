@@ -483,32 +483,17 @@ if ((Test-Path (Join-Path $jdtlsDir "bin\jdtls")) -and (Test-PinnedVersion (Join
     }
 }
 
-# 12. Kotlin - kotlin-lsp (JetBrains' Kotlin LSP)
-# The standalone server brings its own Java runtime. The build is the one
-# registry.json pins for kotlin-lsp (direct installs fetch the same), checked
-# against the SHA-256 JetBrains publishes beside it. A build of another version
-# is replaced, and a kotlin-language-server install, a server Devscriptor does
-# not use, is removed.
-$kotlinVer = "263.6379.0"
-$kotlinDir = Join-Path $LspDir "kotlin-lsp"
-if ((Test-Path (Join-Path $kotlinDir "bin\intellij-server.exe")) -and (Test-PinnedVersion (Join-Path $kotlinDir ".version") $kotlinVer)) {
-    Already-Present "kotlin-lsp"
-} else {
-    $retired = Join-Path $LspDir "kotlin-language-server"
-    if (Test-Path $retired) { Remove-Item -Recurse -Force $retired }
-    Write-Host "[kotlin-lsp] Downloading JetBrains' Kotlin LSP $kotlinVer"
-    $zip = Join-Path ([System.IO.Path]::GetTempPath()) "kotlin-lsp-$kotlinVer.win.zip"
-    if (Get-Verified "https://download.jetbrains.com/language-server/kotlin-server/$kotlinVer/kotlin-server-$kotlinVer.win.zip" $zip) {
-        if (Test-Path $kotlinDir) { Remove-Item -Recurse -Force $kotlinDir }
-        # The Windows archive has no top-level folder: it unpacks as `kotlin-lsp\`.
-        Expand-Archive -Path $zip -DestinationPath $kotlinDir -Force
-        Set-Content -Path (Join-Path $kotlinDir ".version") -Value $kotlinVer -Encoding ASCII
-        Mark-Downloaded "kotlin-lsp" $kotlinVer
-    } else {
-        Mark-Failed "kotlin-lsp" "download failed"
-    }
-    Remove-Item $zip -ErrorAction SilentlyContinue
+# 12. Kotlin - kotlin-lsp (JetBrains' Kotlin LSP): not packaged. JetBrains'
+# builds expire some weeks after their release (registry.json says
+# `builds_expire`), so a packaged one would stop starting while the mirror
+# still served it; Devscriptor installs the current build from JetBrains
+# instead. An earlier download's copy, and a kotlin-language-server install,
+# a server Devscriptor does not use, are removed so that neither is packaged.
+foreach ($retired in @("kotlin-lsp", "kotlin-language-server")) {
+    $retiredDir = Join-Path $LspDir $retired
+    if (Test-Path $retiredDir) { Remove-Item -Recurse -Force $retiredDir }
 }
+Write-Host "[kotlin-lsp] Not packaged: its builds expire, and Devscriptor installs the current one"
 
 # 13. Scala - metals (via coursier; JVM)
 # A Coursier launcher for the build registry.json pins (direct installs make

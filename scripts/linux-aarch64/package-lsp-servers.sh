@@ -184,8 +184,9 @@ create_manifest() {
 validate_against_registry() {
     local manifest_file="${OUTPUT_DIR}/manifest-${PLATFORM}.json"
     local reg_ids man_ids unknown absent
-    # A server that comes with its toolchain (sourcekit-lsp) is never packaged.
-    reg_ids=$(jq -r '(.servers // .) | to_entries[] | select(.value.source.type != "system") | .key' "$REGISTRY_JSON" | sort)
+    # A server that comes with its toolchain (sourcekit-lsp), or whose builds
+    # expire (kotlin-lsp), is never packaged.
+    reg_ids=$(jq -r '(.servers // .) | to_entries[] | select(.value.source.type != "system" and (.value.builds_expire | not)) | .key' "$REGISTRY_JSON" | sort)
     man_ids=$(jq -r '.servers | keys[]' "$manifest_file" | sort)
     unknown=$(comm -23 <(echo "$man_ids") <(echo "$reg_ids"))
     absent=$(comm -13 <(echo "$man_ids") <(echo "$reg_ids"))
