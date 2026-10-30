@@ -8,11 +8,12 @@
 //! 5. Auto-installation
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::trace;
 
 use crate::config::LspServerConfig;
+use crate::generated_registry;
 
 use super::prerequisites::{PrerequisitesResult, check_prerequisites, get_prerequisite_tiers};
 use super::resolver::{LspResolver, LspSource, ResolutionResult, UserLspConfig};
@@ -38,14 +39,6 @@ pub struct DetectedLanguage {
     pub suggested_servers: Vec<String>,
 }
 
-/// Type alias for language marker tuples
-pub type LanguageMarkers = Vec<(
-    String,
-    Vec<&'static str>,
-    Vec<&'static str>,
-    Vec<&'static str>,
-)>;
-
 /// Action to take for an LSP server
 #[derive(Debug, Clone)]
 pub enum LspAction {
@@ -70,6 +63,24 @@ pub struct LspArchitectureResult {
     pub needs_install: Vec<(String, PrerequisitesResult)>,
     /// Servers with missing prerequisites
     pub missing_prerequisites: Vec<(String, PrerequisitesResult)>,
+}
+
+/// The most files [`LspArchitectureManager::detect_languages`] looks at; a
+/// larger tree is judged by the first ones its walk meets.
+const DETECTION_FILE_LIMIT: usize = 100_000;
+
+/// The first file among `file_names` (by name) that `marker` names, a name
+/// or a glob (`*.csproj`).
+fn marker_in(file_names: &HashMap<String, PathBuf>, marker: &str) -> Option<PathBuf> {
+    if !marker.contains('*') {
+        return file_names.get(marker).cloned();
+    }
+    let pattern = glob::Pattern::new(marker).ok()?;
+    file_names
+        .iter()
+        .filter(|(name, _)| pattern.matches(name))
+        .map(|(_, path)| path.clone())
+        .min()
 }
 
 impl LspArchitectureManager {
@@ -134,225 +145,96 @@ impl LspArchitectureManager {
         }
     }
 
-    /// Detect languages in a project.
+    /// Detect languages in a project: the language of each registry server
+    /// with a source file in it, at any depth. One walk of the tree, as git
+    /// sees it, counts every extension and finds the servers' project markers
+    /// wherever they are: a monorepo keeps its services' sources and manifests
+    /// some levels down (`services/rating-rust/src/discount.rs`). Ignore files
+    /// are honoured, also outside a repository, and hidden directories (`.git`,
+    /// `.venv`, the servers' own `.metals/`) are left out, but not the hidden
+    /// files that mark a project (`.clangd`). At most [`DETECTION_FILE_LIMIT`]
+    /// files are looked at.
     ///
-    /// Walks the filesystem **once** and builds an extension→count map,
-    /// then looks up each language's extensions against that map
-    /// rather than walking the tree once per language.
+    /// A language with sources is detected with confidence 0.3, and with 0.8
+    /// where a marker of its server's is in the tree too; a marker alone
+    /// detects nothing, as `pom.xml` is both Java's and Kotlin's. The most
+    /// confident come first, and of those the ones with the most sources.
     fn detect_languages(&self, project_path: &Path) -> Vec<DetectedLanguage> {
-        let mut detected = Vec::new();
-        let mut found_languages = HashSet::new();
-
-        // Single filesystem walk: collect all file extensions and their counts.
         let mut ext_counts: HashMap<String, usize> = HashMap::new();
-        for entry in walkdir::WalkDir::new(project_path)
-            .follow_links(false)
-            .max_depth(3)
-            .into_iter()
+        let mut file_names: HashMap<String, PathBuf> = HashMap::new();
+        let walker = ignore::WalkBuilder::new(project_path)
+            .hidden(false)
+            .require_git(false)
+            .filter_entry(|entry| {
+                entry.depth() == 0
+                    || !(entry.file_type().is_some_and(|t| t.is_dir())
+                        && entry.file_name().to_string_lossy().starts_with('.'))
+            })
+            .build();
+        for entry in walker
             .filter_map(std::result::Result::ok)
-            .filter(|e| e.file_type().is_file())
+            .filter(|entry| entry.file_type().is_some_and(|t| t.is_file()))
+            .take(DETECTION_FILE_LIMIT)
         {
-            if let Some(ext) = entry.path().extension().and_then(|e| e.to_str()) {
+            let path = entry.path();
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 *ext_counts.entry(ext.to_lowercase()).or_insert(0) += 1;
+            }
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                file_names
+                    .entry(name.to_string())
+                    .or_insert_with(|| path.to_path_buf());
             }
         }
 
-        // Check for marker files
-        let markers = self.get_language_markers();
-
-        for (language_id, marker_patterns, extensions, servers) in markers {
-            let mut indicator_files = Vec::new();
-            let mut confidence = 0.0f32;
-
-            // Check marker files
-            for pattern in marker_patterns {
-                if let Some(path) = self.find_marker_file(project_path, pattern) {
-                    indicator_files.push(path);
-                    confidence += 0.5;
-                }
-            }
-
-            // Check for source files using the pre-built extension map
-            let source_count: usize = extensions
+        let mut detected: Vec<(DetectedLanguage, usize)> = Vec::new();
+        for server_id in generated_registry::SERVER_IDS {
+            let (Some(language_id), Some(extensions)) = (
+                generated_registry::language_id(server_id),
+                generated_registry::extensions(server_id),
+            ) else {
+                continue;
+            };
+            let sources: usize = extensions
                 .iter()
                 .map(|e| ext_counts.get(&e.to_lowercase()).copied().unwrap_or(0))
                 .sum();
-            if source_count > 0 {
-                confidence += 0.3;
+            if sources == 0 {
+                continue;
             }
-
-            if confidence > 0.0 && !found_languages.contains(&language_id) {
-                found_languages.insert(language_id.clone());
-                detected.push(DetectedLanguage {
-                    language_id,
-                    confidence: confidence.min(1.0),
+            if let Some((language, _)) = detected
+                .iter_mut()
+                .find(|(language, _)| language.language_id == language_id)
+            {
+                language.suggested_servers.push((*server_id).to_string());
+                continue;
+            }
+            let indicator_files: Vec<PathBuf> = generated_registry::heuristics(server_id)
+                .map(|h| h.markers)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|marker| marker_in(&file_names, marker))
+                .collect();
+            let confidence = if indicator_files.is_empty() { 0.3 } else { 0.8 };
+            detected.push((
+                DetectedLanguage {
+                    language_id: language_id.to_string(),
+                    confidence,
                     indicator_files,
-                    suggested_servers: servers.iter().map(|&s| s.to_string()).collect(),
-                });
-            }
+                    suggested_servers: vec![(*server_id).to_string()],
+                },
+                sources,
+            ));
         }
-
-        // Sort by confidence (handle NaN safely)
-        detected.sort_by(|a, b| {
+        detected.sort_by(|(a, a_sources), (b, b_sources)| {
             b.confidence
                 .partial_cmp(&a.confidence)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then(b_sources.cmp(a_sources))
         });
-
-        detected
+        detected.into_iter().map(|(language, _)| language).collect()
     }
 
-    /// Get language markers for detection
-    fn get_language_markers(&self) -> LanguageMarkers {
-        vec![
-            (
-                "rust".to_string(),
-                vec!["Cargo.toml", "Cargo.lock", "rust-toolchain.toml"],
-                vec!["rs"],
-                vec!["rust-analyzer"],
-            ),
-            (
-                "typescript".to_string(),
-                vec!["package.json", "tsconfig.json", "tsconfig.*.json"],
-                vec!["ts", "tsx", "js", "jsx", "mjs", "cjs"],
-                vec!["typescript-language-server"],
-            ),
-            (
-                "python".to_string(),
-                vec![
-                    "pyproject.toml",
-                    "requirements.txt",
-                    "setup.py",
-                    "Pipfile",
-                    "poetry.lock",
-                ],
-                vec!["py", "pyw", "pyi"],
-                vec!["pyright"],
-            ),
-            (
-                "go".to_string(),
-                vec!["go.mod", "go.sum"],
-                vec!["go"],
-                vec!["gopls"],
-            ),
-            (
-                "java".to_string(),
-                vec!["pom.xml", "build.gradle", ".classpath", "gradlew"],
-                vec!["java"],
-                vec!["jdtls"],
-            ),
-            (
-                "kotlin".to_string(),
-                vec!["build.gradle.kts", "*.kt"],
-                vec!["kt", "kts"],
-                vec!["kotlin-lsp"],
-            ),
-            (
-                "scala".to_string(),
-                vec!["build.sbt", "*.scala"],
-                vec!["scala", "sc"],
-                vec!["metals"],
-            ),
-            (
-                "csharp".to_string(),
-                vec!["*.csproj", "*.sln", ".csproj"],
-                vec!["cs"],
-                vec!["csharp-ls"],
-            ),
-            (
-                "fsharp".to_string(),
-                vec!["*.fsproj", "*.sln"],
-                vec!["fs", "fsx"],
-                vec!["fsautocomplete"],
-            ),
-            // The canonical server id, as the system and VS Code registries name it.
-            (
-                "dart".to_string(),
-                vec!["pubspec.yaml", "pubspec.lock"],
-                vec!["dart"],
-                vec!["dart-ls"],
-            ),
-            (
-                "swift".to_string(),
-                vec!["Package.swift", "*.xcodeproj"],
-                vec!["swift"],
-                vec!["sourcekit-lsp"],
-            ),
-            (
-                "cpp".to_string(),
-                vec![
-                    "CMakeLists.txt",
-                    "Makefile",
-                    "compile_commands.json",
-                    "compile_flags.txt",
-                    ".clangd",
-                ],
-                vec!["c", "cpp", "cc", "cxx", "h", "hpp", "cu", "cuh", "mm", "m"],
-                vec!["clangd"],
-            ),
-            (
-                "ruby".to_string(),
-                vec!["Gemfile", "*.gemspec", "Rakefile"],
-                vec!["rb", "erb"],
-                vec!["ruby-lsp"],
-            ),
-            (
-                "php".to_string(),
-                vec!["composer.json", "composer.lock"],
-                vec!["php"],
-                vec!["phpactor"],
-            ),
-            (
-                "vue".to_string(),
-                vec!["vite.config.ts", "nuxt.config.ts", "vue.config.js"],
-                vec!["vue"],
-                vec!["volar"],
-            ),
-            (
-                "svelte".to_string(),
-                vec!["svelte.config.js"],
-                vec!["svelte"],
-                vec!["svelte-language-server"],
-            ),
-            (
-                "graphql".to_string(),
-                vec!["*.graphql", "*.gql", ".graphqlrc"],
-                vec!["graphql", "gql"],
-                vec!["graphql-language-service"],
-            ),
-            // The canonical server id.
-            (
-                "solidity".to_string(),
-                vec!["hardhat.config.js", "foundry.toml", "remappings.txt"],
-                vec!["sol"],
-                vec!["nomicfoundation-solc"],
-            ),
-        ]
-    }
-
-    /// Find a marker file in project
-    fn find_marker_file(&self, project_path: &Path, pattern: &str) -> Option<PathBuf> {
-        // Direct file
-        let direct = project_path.join(pattern);
-        if direct.exists() {
-            return Some(direct);
-        }
-
-        // Glob pattern
-        if pattern.contains('*')
-            && let Ok(entries) = glob::glob(&format!("{}/{}", project_path.display(), pattern))
-        {
-            for entry in entries.flatten() {
-                if entry.exists() {
-                    return Some(entry);
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Find source files with given extensions
     /// Resolve a single server (with caching)
     fn resolve_server(&self, server_id: &str) -> Option<ResolutionResult> {
         // Check cache first

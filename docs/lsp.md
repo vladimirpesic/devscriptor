@@ -93,7 +93,10 @@ places 2 to 4; they do not read the configuration file.
 
 `devscriptor lsp setup` (or the MCP `lsp_arch_setup` tool with `auto_install`):
 
-1. detects the project's languages from file extensions and project markers;
+1. detects the project's languages: that of each server with a source file
+   anywhere in the project, as git sees it (ignore files honoured, hidden
+   directories left out), more confidently where the server's project markers are
+   there too — a marker alone detects nothing;
 2. resolves each language's server as above;
 3. checks the prerequisites of each missing server, and names what is missing;
 4. installs the missing servers it can — after asking, unless `--yes`;

@@ -182,6 +182,67 @@ fn test_analyze_project_multiple_languages() {
     assert!(!result.languages.is_empty());
 }
 
+/// A monorepo's languages are detected at any depth, each with its server,
+/// HTML, SQL and Bash among them: one service's sources lie four levels down,
+/// its manifest with them. What git ignores, or keeps in a hidden directory,
+/// does not count.
+#[test]
+fn a_monorepos_languages_are_detected_at_any_depth() {
+    let temp_dir = TempDir::new().unwrap();
+    let write = |rel: &str, text: &str| {
+        let path = temp_dir.path().join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    write(
+        "services/rating-rust/Cargo.toml",
+        "[package]\nname = \"rating\"\n",
+    );
+    write("services/rating-rust/src/discount.rs", "fn main() {}\n");
+    write("apps/portal/src/quote/estimate.ts", "export const x = 1;\n");
+    write("scripts/rotate.sh", "echo rotate\n");
+    write("site/index.html", "<html></html>\n");
+    write("schema/sql/001_view.sql", "select 1;\n");
+    write(".gitignore", "vendor/\n");
+    write("vendor/lib/widget.vue", "<template></template>\n");
+    write(".venv/lib/site.py", "x = 1\n");
+
+    let manager = LspArchitectureManager::with_bundled_dir(temp_dir.path().to_path_buf());
+    let languages = manager.analyze_project(temp_dir.path()).languages;
+    let found = |id: &str| languages.iter().find(|l| l.language_id == id);
+
+    let rust = found("rust").expect("rust, four levels down");
+    assert_eq!(rust.suggested_servers, ["rust-analyzer"]);
+    assert!(
+        (rust.confidence - 0.8).abs() < f32::EPSILON,
+        "with its Cargo.toml"
+    );
+    assert!(rust.indicator_files[0].ends_with("services/rating-rust/Cargo.toml"));
+    for (id, server) in [
+        ("typescript", "typescript-language-server"),
+        ("bash", "bash-language-server"),
+        ("html", "html-languageserver"),
+        ("sql", "sql-language-server"),
+    ] {
+        let language = found(id).unwrap_or_else(|| panic!("{id} not detected"));
+        assert_eq!(language.suggested_servers, [server]);
+    }
+    assert!(found("vue").is_none(), "ignored by git");
+    assert!(found("python").is_none(), "in a hidden directory");
+    assert_eq!(languages[0].language_id, "rust", "the most confident first");
+}
+
+/// A project marker alone detects nothing: `pom.xml` is both Java's and
+/// Kotlin's.
+#[test]
+fn a_marker_without_sources_detects_no_language() {
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::write(temp_dir.path().join("pom.xml"), "<project/>\n").unwrap();
+    let manager = LspArchitectureManager::with_bundled_dir(temp_dir.path().to_path_buf());
+    let languages = manager.analyze_project(temp_dir.path()).languages;
+    assert!(languages.is_empty(), "{languages:?}");
+}
+
 // ============================================================================
 // DetectedLanguage tests
 // ============================================================================
