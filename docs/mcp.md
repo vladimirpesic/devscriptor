@@ -669,9 +669,9 @@ pushes to settle, so the first call on a file takes a few seconds.
 
 `format_document`, `get_range_format` and `rename_symbol` **write** their edits
 to the files on disk, then return the edits they applied (`{"changes": [{"file_path",
-"edits": [{"range", "new_text"}]}]}` for a rename). A server that does not implement
-formatting answers with LSP error `-32601` (`Unhandled method textDocument/formatting`)
-and nothing is written.
+"edits": [{"range", "new_text"}]}]}` for a rename). For a server that does not offer
+formatting, the tool fails with *"the <language> language server does not support
+formatting"*, and nothing is written.
 
 ### Server Management (7)
 

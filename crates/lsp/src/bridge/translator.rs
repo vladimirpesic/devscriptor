@@ -1295,6 +1295,61 @@ impl Translator {
             .is_some_and(|s| capability_supported(s.capabilities(), provider))
     }
 
+    /// `client.request(method, params)` for a request about `file`. Where the
+    /// server declares no capability for `method` ([`declaring_capability`])
+    /// and the request fails, it fails as [`LspError::Unsupported`]: a server
+    /// answers what it does not offer with an error of its own, an opaque
+    /// `-32601 Unhandled method` or worse (jdtls: `-32603 Internal error`). A
+    /// server that answers all the same is taken at its word: clangd answers
+    /// type hierarchies it does not declare.
+    async fn request_feature<P, R>(
+        &self,
+        client: &LspClient,
+        file: &Path,
+        method: &str,
+        params: P,
+    ) -> Result<R>
+    where
+        P: serde::Serialize,
+        R: serde::de::DeserializeOwned,
+    {
+        match client.request(method, params).await {
+            Ok(response) => Ok(response),
+            Err(error) => Err(self.unsupported_unless_declared(file, method, error).await),
+        }
+    }
+
+    /// `error`, a failure of `method` on the server of `file`, or
+    /// [`LspError::Unsupported`] where the server declares no capability for
+    /// `method`. A broken connection is not a missing feature, and stays.
+    async fn unsupported_unless_declared(
+        &self,
+        file: &Path,
+        method: &str,
+        error: LspError,
+    ) -> LspError {
+        let Some((provider, feature)) = declaring_capability(method) else {
+            return error;
+        };
+        if matches!(
+            error,
+            LspError::ServerClosed | LspError::Transport(_) | LspError::Shutdown
+        ) {
+            return error;
+        }
+        let language_id = self.get_language_id(file);
+        let servers = self.servers.read().await;
+        match servers.get(&language_id) {
+            Some(server) if !capability_supported(server.capabilities(), provider) => {
+                LspError::Unsupported {
+                    language_id,
+                    feature: feature.to_string(),
+                }
+            }
+            _ => error,
+        }
+    }
+
     /// Turn a request the server cannot handle into a clear up-front error
     /// instead of an opaque `-32601 Unhandled method` from the wire. Best-effort:
     /// if the server is not (yet) known, the request is allowed to proceed.
@@ -1335,8 +1390,9 @@ impl Translator {
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
         };
 
-        let response: Option<lsp_types::Hover> =
-            client.request("textDocument/hover", lsp_params).await?;
+        let response: Option<lsp_types::Hover> = self
+            .request_feature(&client, file_path, "textDocument/hover", lsp_params)
+            .await?;
 
         // lsp-types 0.97 HoverContents is not Option
         let contents = response
@@ -1378,8 +1434,8 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<lsp_types::GotoDefinitionResponse> = client
-            .request("textDocument/definition", lsp_params)
+        let response: Option<lsp_types::GotoDefinitionResponse> = self
+            .request_feature(&client, file_path, "textDocument/definition", lsp_params)
             .await?;
 
         let locations = match response {
@@ -1429,8 +1485,8 @@ impl Translator {
             },
         };
 
-        let response: Option<Vec<lsp_types::Location>> = client
-            .request("textDocument/references", lsp_params)
+        let response: Option<Vec<lsp_types::Location>> = self
+            .request_feature(&client, file_path, "textDocument/references", lsp_params)
             .await?;
 
         let locations = response
@@ -1470,8 +1526,8 @@ impl Translator {
             context: None,
         };
 
-        let response: Option<lsp_types::CompletionResponse> = client
-            .request("textDocument/completion", lsp_params)
+        let response: Option<lsp_types::CompletionResponse> = self
+            .request_feature(&client, file_path, "textDocument/completion", lsp_params)
             .await?;
 
         let items = match response {
@@ -1752,8 +1808,8 @@ impl Translator {
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::TextEdit>> = client
-            .request("textDocument/formatting", lsp_params)
+        let response: Option<Vec<lsp_types::TextEdit>> = self
+            .request_feature(&client, file_path, "textDocument/formatting", lsp_params)
             .await?;
 
         let edits: Vec<TextEdit> = response
@@ -1806,8 +1862,8 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<lsp_types::CodeActionResponse> = client
-            .request("textDocument/codeAction", lsp_params)
+        let response: Option<lsp_types::CodeActionResponse> = self
+            .request_feature(&client, file_path, "textDocument/codeAction", lsp_params)
             .await?;
 
         let actions = response
@@ -1873,8 +1929,9 @@ impl Translator {
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
         };
 
-        let response: Option<lsp_types::WorkspaceEdit> =
-            client.request("textDocument/rename", lsp_params).await?;
+        let response: Option<lsp_types::WorkspaceEdit> = self
+            .request_feature(&client, file_path, "textDocument/rename", lsp_params)
+            .await?;
 
         let mut changes: Vec<DocumentChanges> = Vec::new();
         if let Some(edit) = response {
@@ -1945,8 +2002,8 @@ impl Translator {
             context: None,
         };
 
-        let response: Option<lsp_types::SignatureHelp> = client
-            .request("textDocument/signatureHelp", lsp_params)
+        let response: Option<lsp_types::SignatureHelp> = self
+            .request_feature(&client, file_path, "textDocument/signatureHelp", lsp_params)
             .await?;
 
         let signatures = response.map(|sh| {
@@ -2016,8 +2073,13 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<lsp_types::GotoDefinitionResponse> = client
-            .request("textDocument/typeDefinition", lsp_params)
+        let response: Option<lsp_types::GotoDefinitionResponse> = self
+            .request_feature(
+                &client,
+                file_path,
+                "textDocument/typeDefinition",
+                lsp_params,
+            )
             .await?;
 
         let locations = match response {
@@ -2067,8 +2129,13 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<lsp_types::GotoDefinitionResponse> = client
-            .request("textDocument/implementation", lsp_params)
+        let response: Option<lsp_types::GotoDefinitionResponse> = self
+            .request_feature(
+                &client,
+                file_path,
+                "textDocument/implementation",
+                lsp_params,
+            )
             .await?;
 
         let locations = match response {
@@ -2117,8 +2184,13 @@ impl Translator {
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::CallHierarchyItem>> = client
-            .request("textDocument/prepareCallHierarchy", lsp_params)
+        let response: Option<Vec<lsp_types::CallHierarchyItem>> = self
+            .request_feature(
+                &client,
+                file_path,
+                "textDocument/prepareCallHierarchy",
+                lsp_params,
+            )
             .await?;
 
         let items = response
@@ -2153,8 +2225,13 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::CallHierarchyIncomingCall>> = client
-            .request("callHierarchy/incomingCalls", lsp_params)
+        let response: Option<Vec<lsp_types::CallHierarchyIncomingCall>> = self
+            .request_feature(
+                &client,
+                Path::new(&item.location.file_path),
+                "callHierarchy/incomingCalls",
+                lsp_params,
+            )
             .await?;
 
         let calls = response
@@ -2195,8 +2272,13 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::CallHierarchyOutgoingCall>> = client
-            .request("callHierarchy/outgoingCalls", lsp_params)
+        let response: Option<Vec<lsp_types::CallHierarchyOutgoingCall>> = self
+            .request_feature(
+                &client,
+                Path::new(&item.location.file_path),
+                "callHierarchy/outgoingCalls",
+                lsp_params,
+            )
             .await?;
 
         let calls = response
@@ -2237,8 +2319,13 @@ impl Translator {
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::TypeHierarchyItem>> = client
-            .request("textDocument/prepareTypeHierarchy", lsp_params)
+        let response: Option<Vec<lsp_types::TypeHierarchyItem>> = self
+            .request_feature(
+                &client,
+                file_path,
+                "textDocument/prepareTypeHierarchy",
+                lsp_params,
+            )
             .await?;
 
         let items = response
@@ -2270,8 +2357,14 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::TypeHierarchyItem>> =
-            client.request("typeHierarchy/subtypes", lsp_params).await?;
+        let response: Option<Vec<lsp_types::TypeHierarchyItem>> = self
+            .request_feature(
+                &client,
+                Path::new(&item.location.file_path),
+                "typeHierarchy/subtypes",
+                lsp_params,
+            )
+            .await?;
 
         let subtypes = response
             .unwrap_or_default()
@@ -2302,8 +2395,13 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::TypeHierarchyItem>> = client
-            .request("typeHierarchy/supertypes", lsp_params)
+        let response: Option<Vec<lsp_types::TypeHierarchyItem>> = self
+            .request_feature(
+                &client,
+                Path::new(&item.location.file_path),
+                "typeHierarchy/supertypes",
+                lsp_params,
+            )
             .await?;
 
         let supertypes = response
@@ -2342,8 +2440,13 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::DocumentHighlight>> = client
-            .request("textDocument/documentHighlight", lsp_params)
+        let response: Option<Vec<lsp_types::DocumentHighlight>> = self
+            .request_feature(
+                &client,
+                file_path,
+                "textDocument/documentHighlight",
+                lsp_params,
+            )
             .await?;
 
         let highlights = response
@@ -2382,8 +2485,8 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::ColorInformation>> = client
-            .request("textDocument/documentColor", lsp_params)
+        let response: Option<Vec<lsp_types::ColorInformation>> = self
+            .request_feature(&client, file_path, "textDocument/documentColor", lsp_params)
             .await?;
 
         let colors = response
@@ -2427,8 +2530,8 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::FoldingRange>> = client
-            .request("textDocument/foldingRange", lsp_params)
+        let response: Option<Vec<lsp_types::FoldingRange>> = self
+            .request_feature(&client, file_path, "textDocument/foldingRange", lsp_params)
             .await?;
 
         let ranges = response
@@ -2480,8 +2583,13 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::SelectionRange>> = client
-            .request("textDocument/selectionRange", lsp_params)
+        let response: Option<Vec<lsp_types::SelectionRange>> = self
+            .request_feature(
+                &client,
+                file_path,
+                "textDocument/selectionRange",
+                lsp_params,
+            )
             .await?;
 
         fn convert_selection_range(path: &str, sr: &lsp_types::SelectionRange) -> SelectionRange {
@@ -2530,8 +2638,13 @@ impl Translator {
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
         };
 
-        let response: Option<lsp_types::LinkedEditingRanges> = client
-            .request("textDocument/linkedEditingRange", lsp_params)
+        let response: Option<lsp_types::LinkedEditingRanges> = self
+            .request_feature(
+                &client,
+                file_path,
+                "textDocument/linkedEditingRange",
+                lsp_params,
+            )
             .await?;
 
         let ranges = response.map(|r| {
@@ -2570,8 +2683,9 @@ impl Translator {
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::InlayHint>> =
-            client.request("textDocument/inlayHint", lsp_params).await?;
+        let response: Option<Vec<lsp_types::InlayHint>> = self
+            .request_feature(&client, file_path, "textDocument/inlayHint", lsp_params)
+            .await?;
 
         let hints = response
             .unwrap_or_default()
@@ -2618,8 +2732,8 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::DocumentLink>> = client
-            .request("textDocument/documentLink", lsp_params)
+        let response: Option<Vec<lsp_types::DocumentLink>> = self
+            .request_feature(&client, file_path, "textDocument/documentLink", lsp_params)
             .await?;
 
         let links = response
@@ -2660,8 +2774,13 @@ impl Translator {
             partial_result_params: lsp_types::PartialResultParams::default(),
         };
 
-        let response: Option<lsp_types::SemanticTokens> = client
-            .request("textDocument/semanticTokens/full", lsp_params)
+        let response: Option<lsp_types::SemanticTokens> = self
+            .request_feature(
+                &client,
+                file_path,
+                "textDocument/semanticTokens/full",
+                lsp_params,
+            )
             .await?;
 
         let tokens = match response {
@@ -2726,8 +2845,13 @@ impl Translator {
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
         };
 
-        let response: Option<Vec<lsp_types::TextEdit>> = client
-            .request("textDocument/rangeFormatting", lsp_params)
+        let response: Option<Vec<lsp_types::TextEdit>> = self
+            .request_feature(
+                &client,
+                file_path,
+                "textDocument/rangeFormatting",
+                lsp_params,
+            )
             .await?;
 
         let edits: Vec<TextEdit> = response
@@ -2775,8 +2899,9 @@ impl Translator {
             ..Default::default()
         };
 
-        let response: lsp_types::CompletionItem =
-            client.request("completionItem/resolve", item).await?;
+        let response: lsp_types::CompletionItem = self
+            .request_feature(&client, file_path, "completionItem/resolve", item)
+            .await?;
 
         Ok(CompletionResolveResult {
             item: Completion {
@@ -2819,7 +2944,9 @@ impl Translator {
             diagnostics: None,
         };
 
-        let response: lsp_types::CodeAction = client.request("codeAction/resolve", action).await?;
+        let response: lsp_types::CodeAction = self
+            .request_feature(&client, file_path, "codeAction/resolve", action)
+            .await?;
 
         Ok(CodeActionResolveResult {
             action: CodeAction {
@@ -3424,6 +3551,43 @@ fn workspace_symbols_from_lsp(
             .collect(),
         None => vec![],
     }
+}
+
+/// The capability a server declares for the LSP `method`, and the feature it
+/// is named as in an [`LspError::Unsupported`].
+fn declaring_capability(method: &str) -> Option<(&'static str, &'static str)> {
+    Some(match method {
+        "textDocument/hover" => ("hoverProvider", "hover"),
+        "textDocument/definition" => ("definitionProvider", "go to definition"),
+        "textDocument/references" => ("referencesProvider", "references"),
+        "textDocument/completion" | "completionItem/resolve" => {
+            ("completionProvider", "completion")
+        }
+        "textDocument/formatting" => ("documentFormattingProvider", "formatting"),
+        "textDocument/rangeFormatting" => ("documentRangeFormattingProvider", "range formatting"),
+        "textDocument/codeAction" | "codeAction/resolve" => ("codeActionProvider", "code actions"),
+        "textDocument/rename" => ("renameProvider", "rename"),
+        "textDocument/signatureHelp" => ("signatureHelpProvider", "signature help"),
+        "textDocument/typeDefinition" => ("typeDefinitionProvider", "type definitions"),
+        "textDocument/implementation" => ("implementationProvider", "implementations"),
+        "textDocument/prepareCallHierarchy"
+        | "callHierarchy/incomingCalls"
+        | "callHierarchy/outgoingCalls" => ("callHierarchyProvider", "call hierarchy"),
+        "textDocument/prepareTypeHierarchy"
+        | "typeHierarchy/subtypes"
+        | "typeHierarchy/supertypes" => ("typeHierarchyProvider", "type hierarchy"),
+        "textDocument/documentHighlight" => ("documentHighlightProvider", "document highlights"),
+        "textDocument/documentColor" => ("colorProvider", "document colors"),
+        "textDocument/foldingRange" => ("foldingRangeProvider", "folding ranges"),
+        "textDocument/selectionRange" => ("selectionRangeProvider", "selection ranges"),
+        "textDocument/linkedEditingRange" => {
+            ("linkedEditingRangeProvider", "linked editing ranges")
+        }
+        "textDocument/inlayHint" => ("inlayHintProvider", "inlay hints"),
+        "textDocument/documentLink" => ("documentLinkProvider", "document links"),
+        "textDocument/semanticTokens/full" => ("semanticTokensProvider", "semantic tokens"),
+        _ => return None,
+    })
 }
 
 /// Whether an `initialize` capabilities object advertises `provider`.

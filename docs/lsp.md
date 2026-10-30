@@ -206,9 +206,12 @@ first request reliable:
 - **Capability-aware dispatch.** Document-symbol and workspace-symbol requests are
   checked against the capabilities the server advertised: a server without them
   yields *"the <language> language server does not support …"*, and workspace-symbol
-  queries go to every running server that supports them. Other requests go to the
-  server as they are, so one it does not implement comes back as LSP error `-32601`
-  (`Unhandled method textDocument/…`).
+  queries go to every running server that supports them. Every other request goes to
+  the server; one that fails for a capability the server did not advertise yields the
+  same *"does not support …"*, rather than the server's own error (`-32601 Unhandled
+  method`, or jdtls's `-32603 Internal error`). A server that answers a request it did
+  not advertise is taken at its word, and the error of one it did advertise is its
+  own.
 - **Pushed diagnostics.** Servers that only push diagnostics after a file opens or
   changes (typescript-language-server, clangd, gopls, jdtls) have them collected;
   `get_diagnostics` waits for the pushes to settle.
@@ -369,8 +372,7 @@ language; see [CLI](cli.md#definition).
 | `No LSP server configured for language: rust: no project root above …` | A language whose server needs a manifest (Rust, C#, F#, Scala), on a file outside any project: use a file inside one |
 | `… needs a GraphQL config at the project root` | Add a GraphQL config beside the schema, such as `.graphqlrc.yml` with `schema: schema.graphql` and `documents: "src/**/*.graphql"` |
 | `No LSP server configured for language: …` (other) | The server failed to start: run with `--verbose`, and `devscriptor lsp check <server>` |
-| `the <language> language server does not support …` | The server lacks document or workspace symbols |
-| `LSP server error -32601: Unhandled method …` | The server does not implement the request; see `get_server_capabilities` |
+| `the <language> language server does not support …` | The server does not offer the feature; `get_server_capabilities` shows what it offers |
 | `no indexed symbol named '…'` | A `name` with no matching entity in the index: scan the codebase, or pass `file_path`, `line` and `character` |
 | A request times out | A slow operation, or a server still indexing: raise `timeout_seconds`, or retry once indexing settles |
 | A server is not found | `devscriptor lsp status` shows where each server resolves, or why it does not |
