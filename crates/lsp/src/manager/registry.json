@@ -628,8 +628,7 @@
       "id": "sourcekit-lsp",
       "name": "SourceKit-LSP",
       "languages": [
-        "swift",
-        "objective-c"
+        "swift"
       ],
       "source": {
         "type": "system"

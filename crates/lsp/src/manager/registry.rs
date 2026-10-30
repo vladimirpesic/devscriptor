@@ -688,6 +688,28 @@ mod tests {
         );
         let clangd = registry.get_server("clangd").unwrap();
         assert!(clangd.languages.iter().any(|l| l == "objective-c"));
+        assert_eq!(
+            registry
+                .find_by_language("objective-c")
+                .map(|s| s.id.as_str()),
+            Some("clangd")
+        );
+    }
+
+    /// `find_by_language` takes the first server that lists a language, in
+    /// the order of a `HashMap`: a language two servers listed would resolve
+    /// to either, run to run. The bridge routes by extension, to one server.
+    #[test]
+    fn no_language_is_listed_by_two_servers() {
+        let registry = ServerRegistry::load().unwrap();
+        let mut owner: HashMap<String, &str> = HashMap::new();
+        for server in registry.list_servers() {
+            for language in &server.languages {
+                if let Some(other) = owner.insert(language.to_lowercase(), &server.id) {
+                    panic!("{language} is listed by {other} and {}", server.id);
+                }
+            }
+        }
     }
 
     /// A `download` source pins one build; an install that records another

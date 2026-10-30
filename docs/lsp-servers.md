@@ -37,7 +37,7 @@ Sizes are those of a Linux x86_64 install.
 | `pyright` | Python | npm | 1.1.411 | Node.js 18+ |
 | `ruby-lsp` | Ruby | gem | 0.26.11 | Ruby 3.0+ |
 | `rust-analyzer` | Rust | GitHub release | latest | rustup, to load a project |
-| `sourcekit-lsp` | Swift, Objective-C | The Swift toolchain | — | The Swift toolchain |
+| `sourcekit-lsp` | Swift | The Swift toolchain | — | The Swift toolchain |
 | `sql-language-server` | SQL | npm | 1.7.1 | Node.js 18+ |
 | `svelte-language-server` | Svelte | npm | 0.18.3 | Node.js 18+ |
 | `typescript-language-server` | TypeScript, JavaScript, TSX | npm | 5.3.0 | Node.js 18+ |
@@ -206,7 +206,7 @@ replaces such an install with one beside Fantomas.
 
 ## Swift
 
-### sourcekit-lsp (Swift, Objective-C)
+### sourcekit-lsp (Swift)
 
 sourcekit-lsp runs only inside its Swift toolchain: the binary loads its libraries
 from `../lib/swift/<platform>` and works with the compiler and SDK beside it, and
