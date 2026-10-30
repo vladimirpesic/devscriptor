@@ -55,7 +55,7 @@ it.
 ### Linux and macOS
 
 ```bash
-VERSION=1.0.0
+VERSION=1.0.1
 TARGET=x86_64-unknown-linux-gnu       # see the table above
 curl -LO "https://github.com/vladimirpesic/devscriptor/releases/download/v${VERSION}/devscriptor-${VERSION}-${TARGET}.tar.gz"
 curl -LO "https://github.com/vladimirpesic/devscriptor/releases/download/v${VERSION}/devscriptor-${VERSION}-${TARGET}.tar.gz.sha256"
