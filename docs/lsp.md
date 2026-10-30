@@ -358,7 +358,9 @@ startup = "lazy"
 idle_timeout_secs = 600
 ```
 
-Each `[[lsp_servers]]` entry takes `language_id` and `command`, and optionally
+The `[workspace]` table (`roots`, the directories servers are given, and
+`heuristics_max_depth`) and the `[lifecycle]` table are optional. Each
+`[[lsp_servers]]` entry takes `language_id` and `command`, and optionally
 `args`, `env`, `working_dir`, `extensions`, `heuristics` (project markers),
 `initialization_options` (sent with `initialize`), `configuration` (sent to the
 server as its settings) and `settings` (Devscriptor's own per-server

@@ -23,7 +23,9 @@ const LOCAL_CONFIG_FILE: &str = "devscriptor-lsp.toml";
 /// Main configuration structure.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Config {
-    /// Workspace configuration.
+    /// Workspace configuration: the `[workspace]` table. Every key is
+    /// optional, and so is the table.
+    #[serde(default)]
     pub workspace: WorkspaceConfig,
     /// LSP server configurations.
     #[serde(rename = "lsp_servers")]
@@ -270,6 +272,19 @@ mod tests {
             crate::generated_registry::SERVER_IDS.len() > Config::default().servers.len(),
             "the fallback must never be the whole catalog"
         );
+    }
+
+    /// A file may list only its servers: without `[workspace]`, the default
+    /// roots and depth apply.
+    #[test]
+    fn the_workspace_table_is_optional() {
+        let config = Config::parse(
+            "[[lsp_servers]]\nlanguage_id = \"rust\"\ncommand = \"rust-analyzer\"\nextensions = [\"rs\"]\n",
+        )
+        .unwrap();
+        assert_eq!(config.workspace.roots, vec![PathBuf::from(".")]);
+        assert_eq!(config.workspace.heuristics_max_depth, 3);
+        assert_eq!(config.servers.len(), 1);
     }
 
     /// A project's `devscriptor-lsp.toml` names commands to run, so it is used
