@@ -4,7 +4,8 @@ name: Model mirror
 # release Devscriptor downloads them from when Hugging Face cannot be reached
 # (docs/building.md). Run by hand, once for each revision model_fetch.rs pins:
 # the release is named after the revision, and never changes once published. A
-# draft of it that a failed run left is replaced.
+# run when it is published checks it instead, and a draft of it that a failed
+# run left is replaced.
 on:
   workflow_dispatch:
 
@@ -36,25 +37,27 @@ jobs:
             echo "::error::model_fetch.rs names no MODEL_MIRROR_RELEASE"
             exit 1
           fi
-          # A published release is never changed; a draft of it, which only an
-          # earlier run of this workflow leaves and no one else sees, is
-          # replaced.
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # A published release is never changed: it is checked instead. A
+          # draft of it, which only an earlier run of this workflow leaves and
+          # no one else sees, is replaced.
           drafts=$(gh release list --limit 1000 --json tagName,isDraft --jq ".[] | select(.tagName == \"$tag\") | .isDraft")
           if grep -qx false <<<"$drafts"; then
-            echo "::error::$tag is published."
-            exit 1
+            echo "::notice::$tag is published already: its files are checked"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           while grep -qx true <<<"$drafts"; do
             gh release delete "$tag" --yes
             echo "::notice::Deleted the draft of $tag an earlier run left"
             drafts=$(gh release list --limit 1000 --json tagName,isDraft --jq ".[] | select(.tagName == \"$tag\") | .isDraft")
           done
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       # The script fetches the revision model_fetch.rs pins and checks each
       # file against the SHA-256 it pins. The release holds the files side by
       # side, as Devscriptor asks the mirror for them.
       - name: Stage the files
+        if: steps.release.outputs.published != 'true'
         run: |
           DEVSCRIPTOR_MODEL_DIR="$RUNNER_TEMP/model" bash scripts/download-embedding-model.sh
           mkdir "$RUNNER_TEMP/assets"
@@ -65,6 +68,7 @@ jobs:
           cat sha256sums.txt
 
       - name: Publish the release
+        if: steps.release.outputs.published != 'true'
         env:
           TAG: ${{ steps.release.outputs.tag }}
         run: |
@@ -72,6 +76,11 @@ jobs:
             --target "$GITHUB_SHA" --latest=false \
             --title "Embedding model (jina-embeddings-v2-base-code ${TAG##*-})" \
             --notes "The files of [jinaai/jina-embeddings-v2-base-code](https://huggingface.co/jinaai/jina-embeddings-v2-base-code) at revision ${TAG##*-} (Apache-2.0), which Devscriptor downloads from here when Hugging Face cannot be reached. Devscriptor checks each file against the SHA-256 it pins."
+
+      # The release serves the files model_fetch.rs pins, as it pins them:
+      # each is downloaded and checked against its SHA-256.
+      - name: Check the release
+        run: python3 .github/scripts/check-mirrors.py --model
 
       # The VS Code extension's update check reads the latest release.
       # Until a Devscriptor release is published, GitHub takes the newest

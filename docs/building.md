@@ -122,7 +122,8 @@ also reserves the 8 MiB main-thread stack that Linux and macOS give a program
 `v<version>` builds the archives and publishes them, with their checksums and
 `latest.json`, as a GitHub release; the tag must match the version in
 `Cargo.toml`, and the release waits for a check that the mirror releases the
-commit pins are published, whole (`.github/scripts/check-mirrors.py`). A manual run, or a push to `main` that changes the workflow, builds
+commit pins are published, whole (`.github/scripts/check-mirrors.py`: every LSP
+archive at its size, every pinned model file at its SHA-256). A manual run, or a push to `main` that changes the workflow, builds
 and checks them without publishing them. The sections below build the same
 archives by hand.
 
@@ -357,10 +358,12 @@ git add crates/lsp/src/manager/mirror.json
 ```
 
 A published release never changes: other servers make a new release, and an older
-one stays for the builds that pin it. Never delete one: GitHub retires the tag of a
-deleted immutable release for good, so the builds that pin it could not have it
-back. The release workflow publishes no Devscriptor release before the mirror
-release it pins.
+one stays for the builds that pin it. A run from a commit whose release is
+published stops; one from another commit publishes another release, which no
+build uses until it is pinned. Never delete a release a build pins: GitHub retires
+the tag of a deleted immutable release for good, so those builds could not have it
+back. One no build pins can go. The release workflow publishes no Devscriptor
+release before the mirror release it pins.
 
 ### Testing packages locally
 
@@ -390,8 +393,11 @@ file is checked against the SHA-256 Devscriptor pins, whichever source it comes
 from. The model mirror workflow (`.github/workflows/model-mirror.yml`), run by hand
 once for each pinned commit, publishes the release: it fetches the files with
 `scripts/download-embedding-model.sh` and publishes them with a `sha256sums.txt`.
-The release never becomes the latest release, and never changes. It is never
-deleted either: its tag would be retired, and a new release would need a new
+A run when the release is published publishes nothing. Either way it then checks
+the release, as the release workflow does (`.github/scripts/check-mirrors.py`):
+each file Devscriptor pins is downloaded and checked against its SHA-256. The
+release never becomes the latest release, and never changes. It is never deleted
+either: its tag would be retired, and a new release would need a new
 `MODEL_MIRROR_RELEASE`.
 
 The same script provisions the model cache ahead of time, at that commit and
