@@ -27,6 +27,12 @@ pub enum Prerequisite {
         name: &'static str,
         command: &'static str,
     },
+    /// An extension of PHP, checked by asking `php` whether it is loaded.
+    PhpExtension {
+        name: &'static str,
+        extension: &'static str,
+        install_instructions: &'static str,
+    },
     /// Custom prerequisite with install instructions
     Custom {
         name: &'static str,
@@ -44,6 +50,7 @@ impl Prerequisite {
             Prerequisite::BuildTool { name, .. } => name,
             Prerequisite::Sdk { name, .. } => name,
             Prerequisite::PackageManager { name, .. } => name,
+            Prerequisite::PhpExtension { name, .. } => name,
             Prerequisite::Custom { name, .. } => name,
         }
     }
@@ -113,6 +120,16 @@ impl Prerequisite {
                 }
             }
             Prerequisite::PackageManager { command, .. } => which::which(command).is_ok(),
+            Prerequisite::PhpExtension { extension, .. } => std::process::Command::new("php")
+                .args([
+                    "-r",
+                    &format!("exit(extension_loaded('{extension}') ? 0 : 1);"),
+                ])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success()),
             Prerequisite::Custom { check_command, .. } => which::which(check_command).is_ok(),
         }
     }
@@ -143,6 +160,11 @@ impl Prerequisite {
             Prerequisite::PackageManager { name, .. } => {
                 format!("Install {}: {}", name, get_pkg_manager_install_cmd(name))
             }
+            Prerequisite::PhpExtension {
+                name,
+                install_instructions,
+                ..
+            } => format!("Install {name}: {install_instructions}"),
             Prerequisite::Custom {
                 name,
                 install_instructions,
@@ -269,12 +291,32 @@ pub fn get_prerequisites(server_id: &str) -> Vec<Prerequisite> {
                 command: "gem",
             },
         ],
-        "phpactor" => vec![Prerequisite::Sdk {
-            name: "PHP",
-            command: "php",
-            env_var: None,
-            min_version: None,
-        }],
+        // phpactor's launcher refuses to start without PHP 8.2 and these
+        // three extensions; PHP on Windows has no posix, so phpactor is not
+        // installed there (`published_for`).
+        "phpactor" => vec![
+            Prerequisite::Sdk {
+                name: "PHP",
+                command: "php",
+                env_var: None,
+                min_version: Some("8.2.0"),
+            },
+            Prerequisite::PhpExtension {
+                name: "PHP's mbstring extension",
+                extension: "mbstring",
+                install_instructions: "sudo apt install php-mbstring  # Fedora: sudo dnf install php-mbstring",
+            },
+            Prerequisite::PhpExtension {
+                name: "PHP's posix extension",
+                extension: "posix",
+                install_instructions: "it comes with PHP's command line on Linux and macOS  # Fedora: sudo dnf install php-process",
+            },
+            Prerequisite::PhpExtension {
+                name: "PHP's tokenizer extension",
+                extension: "tokenizer",
+                install_instructions: "it comes with PHP's command line  # Fedora: sudo dnf install php-common",
+            },
+        ],
         "clangd" => vec![],
 
         _ => vec![],
@@ -371,6 +413,7 @@ fn get_sdk_install_cmd(name: &str) -> &'static str {
             "sudo apt install dotnet-sdk-8.0  # or: https://dotnet.microsoft.com/download"
         }
         "Ruby" => "sudo apt install ruby ruby-dev",
+        "PHP" => "sudo apt install php-cli php-mbstring  # macOS: brew install php",
         "Swift" => "See: https://swift.org/download/",
         _ => "See official documentation",
     }
@@ -392,7 +435,7 @@ pub fn can_auto_install(prereq: &Prerequisite) -> bool {
         Prerequisite::BuildTool { name, .. } => matches!(name, &"Node.js" | &"npm"),
         Prerequisite::Sdk { .. } => false, // SDKs usually require sudo
         Prerequisite::PackageManager { name, .. } => matches!(name, &"npm"),
-        Prerequisite::Custom { .. } => false,
+        Prerequisite::PhpExtension { .. } | Prerequisite::Custom { .. } => false,
     }
 }
 
@@ -429,6 +472,7 @@ pub fn get_install_difficulty(prereq: &Prerequisite) -> InstallDifficulty {
             "npm" => InstallDifficulty::Auto,
             _ => InstallDifficulty::PackageManager,
         },
+        Prerequisite::PhpExtension { .. } => InstallDifficulty::PackageManager,
         Prerequisite::Custom { name, .. } => match *name {
             "Swift toolchain" => InstallDifficulty::LargeDownload,
             _ => InstallDifficulty::Manual,
@@ -562,6 +606,41 @@ mod tests {
         };
         // Just check it doesn't panic
         let _ = node.is_satisfied();
+    }
+
+    /// phpactor's launcher refuses to start without PHP 8.2 and the
+    /// mbstring, posix and tokenizer extensions, so those are its
+    /// prerequisites; an extension is checked by asking `php`.
+    #[test]
+    fn phpactor_needs_php_with_its_extensions() {
+        let prerequisites = get_prerequisites("phpactor");
+        assert!(
+            prerequisites
+                .iter()
+                .any(|p| p.label() == "PHP 8.2.0 or newer")
+        );
+        let extensions: Vec<&str> = prerequisites
+            .iter()
+            .filter_map(|p| match p {
+                Prerequisite::PhpExtension { extension, .. } => Some(*extension),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(extensions, ["mbstring", "posix", "tokenizer"]);
+        let missing = Prerequisite::PhpExtension {
+            name: "PHP's absent extension",
+            extension: "devscriptor_absent",
+            install_instructions: "",
+        };
+        assert!(!missing.is_satisfied(), "with php or without it");
+        if which::which("php").is_ok() {
+            let core = Prerequisite::PhpExtension {
+                name: "PHP's core",
+                extension: "core",
+                install_instructions: "",
+            };
+            assert!(core.is_satisfied());
+        }
     }
 
     #[test]

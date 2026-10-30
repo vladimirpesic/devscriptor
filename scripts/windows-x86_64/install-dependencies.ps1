@@ -7,8 +7,8 @@
     so winget can install machine-wide. Re-run after installs so new PATH entries
     are picked up in a fresh shell.
 .NOTES
-    PHP has no first-party winget package; that step is best-effort and prints
-    manual instructions if it cannot be automated.
+    PHP is not installed: phpactor, the PHP server, needs PHP's posix
+    extension, which PHP on Windows does not have.
 
     If PowerShell refuses to run this script with an execution-policy error, run:
       Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -207,16 +207,10 @@ if (Test-Cmd cs) {
     }
 }
 
-# 8. PHP (phpactor) - no first-party winget; best-effort via Chocolatey, else manual
-Write-Host "[9/9] Checking PHP..."
-if (Test-Cmd php) {
-    Write-Host "  [OK] PHP already installed"
-} elseif (Test-Cmd choco) {
-    choco install php -y
-} else {
-    Write-Warning "PHP not found and Chocolatey is unavailable."
-    Write-Warning "Install PHP from https://windows.php.net/download/ and add it to PATH (needed by phpactor)."
-}
+# 8. PHP - not needed: phpactor, the PHP server, refuses to start without PHP's
+# posix extension, which PHP on Windows does not have, so it is not installed
+# on Windows.
+Write-Host "[9/9] PHP: not needed (phpactor needs PHP's posix extension, which PHP on Windows does not have)"
 
 # Rust (optional - rust-analyzer can be auto-downloaded)
 Write-Host ""

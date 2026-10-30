@@ -813,7 +813,13 @@
         "type": "github-release",
         "repo": "phpactor/phpactor",
         "asset_pattern": "phpactor.phar",
-        "version": "latest"
+        "version": "latest",
+        "published_for": [
+          "linux-x86_64",
+          "linux-aarch64",
+          "macos-x86_64",
+          "macos-aarch64"
+        ]
       },
       "size_mb": 15,
       "bin_path": "bin/phpactor",

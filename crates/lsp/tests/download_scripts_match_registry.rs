@@ -343,7 +343,8 @@ fn clangd_ships_from_its_release_and_is_pointed_at_its_resource_dir() {
 
 /// What a downloader takes from a GitHub release is checked against the
 /// SHA-256 GitHub publishes for the asset, as Devscriptor's own install is —
-/// rust-analyzer's and phpactor's included.
+/// rust-analyzer's and phpactor's included. phpactor is not packaged for
+/// Windows, where PHP has no posix extension, which phpactor needs.
 #[test]
 fn release_assets_are_verified_when_packaged() {
     for script in DOWNLOADERS {
@@ -369,12 +370,13 @@ fn release_assets_are_verified_when_packaged() {
             function.contains("digest") && function.contains(verified),
             "{script}: {fetch} must check the SHA-256 GitHub publishes"
         );
+        let windows = script.ends_with(".ps1");
         for repo in ["rust-lang/rust-analyzer", "phpactor/phpactor"] {
-            assert!(
-                body.lines()
-                    .any(|line| line.contains(fetch) && line.contains(repo)),
-                "{script} must fetch {repo}'s release with {fetch}"
-            );
+            let fetched = body
+                .lines()
+                .any(|line| line.contains(fetch) && line.contains(repo));
+            let wanted = !(windows && repo == "phpactor/phpactor");
+            assert_eq!(fetched, wanted, "{script}: {fetch} of {repo}'s release");
         }
         assert!(
             !body.contains("browser_download_url\": \""),

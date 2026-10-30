@@ -34,7 +34,7 @@ Sizes are those of a Linux x86_64 install made by
 | `kotlin-lsp` | Kotlin | JetBrains' archive | 263.6379.0 | Nothing (it bundles its Java runtime) |
 | `metals` | Scala | Coursier | 1.6.7 | Java |
 | `nomicfoundation-solc` | Solidity | npm (`@nomicfoundation/solidity-language-server`) | 0.8.25 | Node.js 18+ |
-| `phpactor` | PHP | GitHub release | latest | PHP |
+| `phpactor` | PHP | GitHub release | latest | PHP 8.2+ with mbstring, posix, tokenizer; not on Windows |
 | `pyright` | Python | npm | 1.1.411 | Node.js 18+ |
 | `ruby-lsp` | Ruby | gem | 0.26.11 | Ruby 3.0+ |
 | `rust-analyzer` | Rust | GitHub release | latest | rustup, to load a project |
@@ -173,7 +173,11 @@ them, and a .NET tool is told where `dotnet` is.
 
 - **Size:** about 4 MB, a PHAR archive at `bin/phpactor`, from phpactor's GitHub
   releases.
-- **Needs:** **PHP**, `php` on the PATH.
+- **Needs:** **PHP 8.2 or newer**, `php` on the PATH, with the **mbstring**,
+  **posix** and **tokenizer** extensions, without which phpactor does not start.
+  Debian's and Ubuntu's `php-cli` lacks mbstring (`apt install php-mbstring`; the
+  Linux `install-dependencies.sh` installs it). PHP on Windows has no posix
+  extension, so phpactor is not installed on Windows.
 
 ### ruby-lsp (Ruby)
 

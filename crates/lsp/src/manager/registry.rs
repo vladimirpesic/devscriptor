@@ -236,10 +236,11 @@ pub struct SourceInfo {
     /// where the artifact differs by platform.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub platforms: HashMap<String, PlatformBuild>,
-    /// The platforms a GitHub release has a build for, keyed as `platforms`
-    /// is, where it does not have one for each: clangd's has none for Linux
-    /// ARM, and its `clangd-linux` zip is an x86_64 build. Empty is every
-    /// platform.
+    /// The platforms the server is installed on, keyed as `platforms` is,
+    /// where it is not installed on each: those its GitHub release has a
+    /// build for (clangd's has none for Linux ARM, and its `clangd-linux` zip
+    /// is an x86_64 build), or that it runs on (phpactor needs PHP's posix
+    /// extension, which PHP on Windows has not). Empty is every platform.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub published_for: Vec<String>,
     /// npm packages installed beside the server (`name@version`), which it

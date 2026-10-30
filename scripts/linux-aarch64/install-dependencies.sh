@@ -75,11 +75,15 @@ else
     echo "  ✓ Go already installed ($(go version))"
 fi
 
-# Install PHP (for phpactor)
+# Install PHP (for phpactor), with the mbstring extension phpactor refuses to
+# start without, which Debian's and Ubuntu's php-cli does not include.
 echo "[6/7] Checking PHP..."
 if ! command_exists php; then
     echo "Installing PHP..."
-    apt install -y php-cli
+    apt install -y php-cli php-mbstring
+elif ! php -r 'exit(extension_loaded("mbstring") ? 0 : 1);' 2>/dev/null; then
+    echo "Installing PHP's mbstring extension..."
+    apt install -y php-mbstring
 else
     echo "  ✓ PHP already installed ($(php --version | head -1))"
 fi

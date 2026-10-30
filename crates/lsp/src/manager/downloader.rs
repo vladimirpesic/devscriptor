@@ -1112,8 +1112,8 @@ fn published_for(server_info: &ServerInfo, platform: &str) -> Result<()> {
     }
     let name = &server_info.name;
     Err(anyhow!(
-        "{name} was not installed: its release has no build for {platform} (only for {}). \
-         Install {name} yourself; Devscriptor finds it on PATH.",
+        "{name} was not installed: it is not published for {platform}, only for {}. \
+         A {name} installed by other means is found on PATH.",
         published.join(", ")
     ))
 }
@@ -1794,7 +1794,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(
-            refused.contains("its release has no build for linux-aarch64"),
+            refused.contains("it is not published for linux-aarch64"),
             "{refused}"
         );
         // A release with a build for each platform names none.

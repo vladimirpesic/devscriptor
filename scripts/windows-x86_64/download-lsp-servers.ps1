@@ -658,22 +658,12 @@ if ((Test-Path (Join-Path $RubyLspDir "bin\ruby-lsp-launcher.bat")) -and ($RubyL
     }
 }
 
-# 19. PHP - phpactor (platform-independent .phar + .cmd launcher)
-if (Test-Path (Join-Path $LspDir "phpactor\bin\phpactor.cmd")) {
-    Already-Present "phpactor"
-} else {
-    Write-Host "[phpactor] Downloading the latest release's phpactor.phar"
-    $pbin = Join-Path $LspDir "phpactor\bin"
-    New-Item -ItemType Directory -Force -Path $pbin | Out-Null
-    if (Get-ReleaseAsset "phpactor/phpactor" '^phpactor\.phar$' (Join-Path $pbin "phpactor.phar")) {
-        $cmd = "@echo off`r`nphp `"%~dp0phpactor.phar`" %*`r`n"
-        Set-Content -Path (Join-Path $pbin "phpactor.cmd") -Value $cmd -Encoding ASCII
-        Mark-Downloaded "phpactor" "github:phpactor/phpactor"
-    } else {
-        Remove-Item -Recurse -Force (Join-Path $LspDir "phpactor") -ErrorAction SilentlyContinue
-        Mark-Failed "phpactor" "could not fetch a verified phpactor.phar"
-    }
-}
+# 19. PHP - phpactor: not packaged. phpactor refuses to start without PHP's
+# posix extension, which PHP on Windows does not have (registry.json leaves
+# Windows out of its `published_for`). An earlier download's copy is removed so
+# that it is not packaged.
+Remove-Item -Recurse -Force (Join-Path $LspDir "phpactor") -ErrorAction SilentlyContinue
+Write-Host "[phpactor] Not packaged: phpactor needs PHP's posix extension, which PHP on Windows does not have"
 
 # 20. Bash - bash-language-server
 Download-Npm "bash-language-server" "bash-language-server" "5.6.0"
