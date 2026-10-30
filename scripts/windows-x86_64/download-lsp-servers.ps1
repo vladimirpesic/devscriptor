@@ -215,21 +215,36 @@ function Download-Gem($name, $package, $version) {
 
 # --- dotnet tool (csharp-ls, fsautocomplete) ---
 # Install the .NET tool at $version, the build registry.json pins, into
-# lsp-servers\$name\bin\. .version records the build, and an install of another
-# version is replaced once the new one is in. The dotnet CLI's first-run files
-# go to a directory of their own, not into the package.
-function Download-Dotnet($name, $package, $version) {
+# lsp-servers\$name\bin\, with the tools it runs beside it ($companions,
+# "<package>@<version>": fsautocomplete formats with Fantomas, which it finds on
+# its PATH there). .version records the build; an install of another version,
+# or one without a companion at its version, is replaced once the new one is
+# in. The dotnet CLI's first-run files go to a directory of their own, not into
+# the package.
+function Download-Dotnet($name, $package, $version, [string[]]$companions = @()) {
     $target = Join-Path $LspDir $name
-    if (Test-PinnedVersion (Join-Path $target ".version") $version) { Already-Present $name; return }
-    Write-Host "[$name] Installing via dotnet: $package $version"
+    # A tool path keeps each tool in .store\<package id>\<version>\.
+    $present = $true
+    foreach ($companion in $companions) {
+        $companionPackage, $companionVersion = $companion -split '@', 2
+        if (-not (Test-Path (Join-Path $target "bin\.store\$companionPackage\$companionVersion"))) { $present = $false }
+    }
+    if ($present -and (Test-PinnedVersion (Join-Path $target ".version") $version)) { Already-Present $name; return }
+    Write-Host "[$name] Installing via dotnet: $package $version $($companions -join ' ')"
     $staging = New-Staging $target
     $cliHome = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
     New-Item -ItemType Directory -Force -Path $cliHome | Out-Null
     $previousCliHome = $env:DOTNET_CLI_HOME
     $env:DOTNET_CLI_HOME = $cliHome
-    $toolArgs = @("tool", "install", "--tool-path", (Join-Path $staging "bin"), $package, "--version", $version)
-    & dotnet @toolArgs 2>&1 | Select-Object -Last 5 | Out-Host
-    $installed = $LASTEXITCODE -eq 0
+    $tools = [System.Collections.Generic.List[string[]]]::new()
+    $tools.Add([string[]]@($package, $version))
+    foreach ($companion in $companions) { $tools.Add([string[]]($companion -split '@', 2)) }
+    $installed = $true
+    foreach ($tool in $tools) {
+        $toolArgs = @("tool", "install", "--tool-path", (Join-Path $staging "bin"), $tool[0], "--version", $tool[1])
+        & dotnet @toolArgs 2>&1 | Select-Object -Last 5 | Out-Host
+        if ($LASTEXITCODE -ne 0) { $installed = $false; break }
+    }
     $env:DOTNET_CLI_HOME = $previousCliHome
     Remove-Item -Recurse -Force $cliHome -ErrorAction SilentlyContinue
     if ($installed) {
@@ -540,7 +555,7 @@ if ((Test-Path (Join-Path $metalsDir "bin\metals.bat")) -and (Test-PinnedVersion
 Write-Host "`n=== Tier 5: Microsoft Ecosystem (2 servers) ==="
 Download-Dotnet "csharp-ls" "csharp-ls" "0.16.0"
 
-Download-Dotnet "fsautocomplete" "fsautocomplete" "0.83.0"
+Download-Dotnet "fsautocomplete" "fsautocomplete" "0.83.0" @("fantomas@7.0.5")
 
 Write-Host "`n=== Tier 6: Mobile, Systems & Other (5 servers) ==="
 

@@ -244,23 +244,35 @@ find_coursier() {
     return 1
 }
 
-# download_dotnet <id> <package> <version>: install the .NET tool at <version>,
-# the build registry.json pins, into lsp-servers/<id>/bin/. `.version` records
-# the build, and an install of another version is replaced once the new one is
-# in (see `swap_in`). The dotnet CLI's first-run files go to a directory of
-# their own, not into the package.
+# download_dotnet <id> <package> <version> [<companion>@<version>...]: install
+# the .NET tool at <version>, the build registry.json pins, into
+# lsp-servers/<id>/bin/, with the tools it runs beside it (fsautocomplete
+# formats with Fantomas, which it finds on its PATH there). `.version` records
+# the build; an install of another version, or one without a companion at its
+# version, is replaced once the new one is in (see `swap_in`). The dotnet
+# CLI's first-run files go to a directory of their own, not into the package.
 download_dotnet() {
     local name=$1 package=$2 version=$3
-    local target_dir="$LSP_DIR/$name" cli_home
-    if [ "$(cat "$target_dir/.version" 2>/dev/null)" = "$version" ]; then
+    shift 3
+    local target_dir="$LSP_DIR/$name" cli_home companion installed=1 present=1
+    for companion in "$@"; do
+        # A tool path keeps each tool in .store/<package id>/<version>/.
+        [ -d "$target_dir/bin/.store/${companion%@*}/${companion##*@}" ] || present=
+    done
+    if [ -n "$present" ] && [ "$(cat "$target_dir/.version" 2>/dev/null)" = "$version" ]; then
         already_present "$name"
         return
     fi
-    echo "[$name] Installing via dotnet: $package $version"
+    echo "[$name] Installing via dotnet: $package $version $*"
     rm -rf "${target_dir:?}.new"
     mkdir -p "$target_dir.new"
     cli_home=$(mktemp -d)
-    if DOTNET_CLI_HOME="$cli_home" dotnet tool install --tool-path="$target_dir.new/bin" "$package" --version "$version" 2>&1 | tail -5; then
+    DOTNET_CLI_HOME="$cli_home" dotnet tool install --tool-path="$target_dir.new/bin" "$package" --version "$version" 2>&1 | tail -5 || installed=
+    for companion in "$@"; do
+        [ -n "$installed" ] || break
+        DOTNET_CLI_HOME="$cli_home" dotnet tool install --tool-path="$target_dir.new/bin" "${companion%@*}" --version "${companion##*@}" 2>&1 | tail -5 || installed=
+    done
+    if [ -n "$installed" ]; then
         printf '%s\n' "$version" > "$target_dir.new/.version"
         swap_in "$target_dir"
         DOWNLOADED[$name]="dotnet:$package@$version"
@@ -499,7 +511,7 @@ echo "==============================================="
 download_dotnet "csharp-ls" "csharp-ls" "0.16.0"
 
 # 15. F# - fsautocomplete
-download_dotnet "fsautocomplete" "fsautocomplete" "0.83.0"
+download_dotnet "fsautocomplete" "fsautocomplete" "0.83.0" "fantomas@7.0.5"
 
 echo ""
 echo "==============================================="

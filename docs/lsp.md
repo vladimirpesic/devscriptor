@@ -110,7 +110,10 @@ A server is installed from the Devscriptor mirror, a GitHub release
 the platform:
 
 - servers distributed through a package manager are installed with it: npm,
-  `go install`, `dotnet tool`, gem, Coursier;
+  `go install`, `dotnet tool`, gem, Coursier, with the packages they need beside
+  them (the TypeScript typescript-language-server and volar run with, the Fantomas
+  fsautocomplete formats with), and `lsp setup <server>` replaces an install that
+  lacks one;
 - rust-analyzer, clangd and phpactor come from their GitHub releases, checked
   against the SHA-256 GitHub publishes for each asset;
 - jdtls and the Dart SDK come from Eclipse and Google at the version the registry

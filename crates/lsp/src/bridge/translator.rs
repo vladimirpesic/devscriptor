@@ -1811,7 +1811,8 @@ impl Translator {
 
         let response: Option<Vec<lsp_types::TextEdit>> = self
             .request_feature(&client, file_path, "textDocument/formatting", lsp_params)
-            .await?;
+            .await
+            .map_err(with_formatter_hint)?;
 
         let edits: Vec<TextEdit> = response
             .unwrap_or_default()
@@ -2853,7 +2854,8 @@ impl Translator {
                 "textDocument/rangeFormatting",
                 lsp_params,
             )
-            .await?;
+            .await
+            .map_err(with_formatter_hint)?;
 
         let edits: Vec<TextEdit> = response
             .unwrap_or_default()
@@ -3554,6 +3556,26 @@ fn workspace_symbols_from_lsp(
     }
 }
 
+/// `error`, a formatting request's, with what to do where the server has no
+/// formatter to run: FsAutoComplete formats with Fantomas, and one installed
+/// without it says it found none.
+fn with_formatter_hint(error: LspError) -> LspError {
+    match error {
+        LspError::LspServerError { code, message }
+            if message.contains("Fantomas install not found") =>
+        {
+            LspError::LspServerError {
+                code,
+                message: format!(
+                    "{message} `devscriptor lsp setup fsautocomplete` installs FsAutoComplete \
+                     with Fantomas beside it."
+                ),
+            }
+        }
+        other => other,
+    }
+}
+
 /// The capability a server declares for the LSP `method`, and the feature it
 /// is named as in an [`LspError::Unsupported`].
 fn declaring_capability(method: &str) -> Option<(&'static str, &'static str)> {
@@ -4173,6 +4195,26 @@ mod tests {
                 character: b.1,
             },
         }
+    }
+
+    /// FsAutoComplete without Fantomas says it found none, and the error
+    /// names the command that installs it with Fantomas; other errors stay.
+    #[test]
+    fn a_formatter_without_fantomas_is_to_be_installed_with_it() {
+        let hinted = with_formatter_hint(LspError::LspServerError {
+            code: -32602,
+            message: "Fantomas install not found.".into(),
+        });
+        assert_eq!(
+            hinted.to_string(),
+            "LSP server error -32602: Fantomas install not found. `devscriptor lsp setup \
+             fsautocomplete` installs FsAutoComplete with Fantomas beside it."
+        );
+        let other = with_formatter_hint(LspError::LspServerError {
+            code: -32603,
+            message: "parse error".into(),
+        });
+        assert_eq!(other.to_string(), "LSP server error -32603: parse error");
     }
 
     /// A symbol is put at its name: FSAutoComplete's selection range starts

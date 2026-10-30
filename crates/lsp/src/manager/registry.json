@@ -581,7 +581,10 @@
       "source": {
         "type": "dotnet-tool",
         "package": "fsautocomplete",
-        "version": "0.83.0"
+        "version": "0.83.0",
+        "companions": [
+          "fantomas@7.0.5"
+        ]
       },
       "size_mb": 40,
       "bin_path": "bin/fsautocomplete",
@@ -590,6 +593,11 @@
         {
           "url": "https://raw.githubusercontent.com/ionide/FsAutoComplete/4c33a2a7223ea1a885c6bf91e92c7c967c524597/LICENSE.md",
           "sha256": "726c0969376ca32c892b1cecb782e63fa20dccded02783ee95f9d92ecd68bccd"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/fsprojects/fantomas/57a1ad7e7c63eff56600f5c4a4474bd35e5f8174/LICENSE.md",
+          "sha256": "afbf346a88919ce664b55a0078d385dfbd26c11b3f74043928055e99aea1eb6c",
+          "name": "LICENSE-Fantomas.md"
         }
       ],
       "extensions": [
@@ -608,6 +616,9 @@
       "env": {
         "DOTNET_ROLL_FORWARD": "Major"
       },
+      "path": [
+        "{server_dir}/bin"
+      ],
       "timeout_seconds": 180,
       "initialization_options": {
         "AutomaticWorkspaceInit": true

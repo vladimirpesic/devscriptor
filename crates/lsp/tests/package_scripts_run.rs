@@ -324,7 +324,8 @@ fn a_package_holds_its_license_files() {
 /// A license file the server does not ship is fetched from the URL the
 /// registry names, and packaged only when it is the file the registry pins:
 /// one of other bytes, or one the server should ship and does not, keeps its
-/// server out of the packages, and the others go on.
+/// server out of the packages, and the others go on. A file is packaged
+/// under the name the registry gives it, where it gives one.
 #[test]
 fn a_license_file_is_packaged_only_as_the_registry_names_it() {
     use std::os::unix::fs::PermissionsExt;
@@ -348,6 +349,14 @@ fn a_license_file_is_packaged_only_as_the_registry_names_it() {
                 "sha256": sha256,
             }]),
             "pyright" => serde_json::json!([{ "path": "node_modules/pyright/LICENSE.txt" }]),
+            "csharp-ls" => serde_json::json!([
+                { "path": "LICENSE", "name": "LICENSE-csharp-ls" },
+                {
+                    "url": "https://raw.githubusercontent.com/fsprojects/fantomas/0000000000000000000000000000000000000000/LICENSE",
+                    "sha256": sha256,
+                    "name": "LICENSE-Fantomas",
+                },
+            ]),
             "gopls" => serde_json::json!([]),
             _ => local_license(),
         }
@@ -374,6 +383,26 @@ fn a_license_file_is_packaged_only_as_the_registry_names_it() {
         .as_deref(),
         Some("fetched license\n"),
         "{printed}"
+    );
+    for (member, content) in [
+        ("LICENSES/LICENSE-csharp-ls", "license of csharp-ls\n"),
+        ("LICENSES/LICENSE-Fantomas", "fetched license\n"),
+    ] {
+        assert_eq!(
+            archived(root.path(), script, &manifest, "csharp-ls", member).as_deref(),
+            Some(content),
+            "{printed}"
+        );
+    }
+    assert_eq!(
+        archived(
+            root.path(),
+            script,
+            &manifest,
+            "csharp-ls",
+            "LICENSES/LICENSE"
+        ),
+        None
     );
     for (id, why) in [
         ("pyright", "no node_modules/pyright/LICENSE.txt"),

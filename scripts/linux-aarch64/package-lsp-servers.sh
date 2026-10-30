@@ -67,16 +67,16 @@ PACKAGED=""
 # add_license_files <id>: put the server's license files, as registry.json
 # names them, in its LICENSES/: copied from the server's own files where it
 # ships them, else fetched from a commit of its publisher's repository and
-# checked against the SHA-256 the registry pins. A server without them is not
-# packaged.
+# checked against the SHA-256 the registry pins, each under its own name or
+# the `name` the registry gives it. A server without them is not packaged.
 add_license_files() {
     local server_id="$1"
     local server_dir="${LSP_SERVERS_DIR}/${server_id}"
     local licenses="${server_dir}/LICENSES"
-    local path url sha256 found dest count=0
+    local path url sha256 name found dest count=0
     rm -rf "${licenses:?}"
     mkdir -p "$licenses"
-    while IFS=$'\x1f' read -r path url sha256; do
+    while IFS=$'\x1f' read -r path url sha256 name; do
         if [[ -n "$path" ]]; then
             # A glob where a directory is named by a version.
             found=$(compgen -G "${server_dir}/${path}" | head -1 || true)
@@ -84,9 +84,9 @@ add_license_files() {
                 print_error "${server_id}: no ${path} to take its license from"
                 return 1
             fi
-            cp "$found" "${licenses}/$(basename "$found")"
+            cp "$found" "${licenses}/${name:-$(basename "$found")}"
         else
-            dest="${licenses}/${url##*/}"
+            dest="${licenses}/${name:-${url##*/}}"
             if ! curl -fsSL --retry 3 "$url" -o "$dest" || [[ "$(sha256_of "$dest")" != "$sha256" ]]; then
                 rm -f "$dest"
                 print_error "${server_id}: ${url} could not be fetched, or is not the file the registry pins"
@@ -95,7 +95,7 @@ add_license_files() {
         fi
         count=$((count + 1))
     done < <(jq -r --arg id "$server_id" \
-        '(.servers // .)[$id].license_files // [] | .[] | [.path // "", .url // "", .sha256 // ""] | join("\u001f")' \
+        '(.servers // .)[$id].license_files // [] | .[] | [.path // "", .url // "", .sha256 // "", .name // ""] | join("\u001f")' \
         "$REGISTRY_JSON")
     if [[ $count -eq 0 ]]; then
         print_error "${server_id}: registry.json names no license file"

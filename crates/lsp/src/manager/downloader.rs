@@ -533,6 +533,16 @@ pub async fn download_server(
                 );
                 clear_dir(&path).await?;
             }
+            // An archive packaged without the tools the server runs beside it
+            // (FsAutoComplete's Fantomas) is installed from the server's own
+            // source instead, with them.
+            Ok(path) if let Some(companion) = server_info.lacks_companion(install_dir) => {
+                info!(
+                    "The mirror's {} comes without {companion}: installing it with it",
+                    server_info.name
+                );
+                clear_dir(&path).await?;
+            }
             Ok(path) => {
                 info!("Downloaded {} from mirror", server_info.name);
                 if let Some(p) = progress {
@@ -993,7 +1003,8 @@ async fn install_go_package(
     Ok(install_dir.to_path_buf())
 }
 
-/// Install a .NET tool
+/// Install a .NET tool, and the tools installed beside it
+/// ([`SourceInfo::companions`](super::registry::SourceInfo::companions)).
 async fn install_dotnet_tool(
     server_info: &ServerInfo,
     install_dir: &Path,
@@ -1012,15 +1023,28 @@ async fn install_dotnet_tool(
         .ok_or_else(|| anyhow!("{}: a .NET tool is installed at a version", server_info.id))?;
 
     tokio::fs::create_dir_all(install_dir.join("bin")).await?;
-    let output = tokio::process::Command::new("dotnet")
-        .args(dotnet_tool_args(package, version, install_dir))
-        .output()
-        .await
-        .context("Failed to run dotnet tool install")?;
+    let mut tools = vec![(package.as_str(), version)];
+    for companion in &server_info.source.companions {
+        tools.push(
+            companion
+                .rsplit_once('@')
+                .filter(|(name, _)| !name.is_empty())
+                .ok_or_else(|| {
+                    anyhow!("{}: companion {companion} names no version", server_info.id)
+                })?,
+        );
+    }
+    for (package, version) in tools {
+        let output = tokio::process::Command::new("dotnet")
+            .args(dotnet_tool_args(package, version, install_dir))
+            .output()
+            .await
+            .context("Failed to run dotnet tool install")?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!("dotnet tool install failed: {stderr}"));
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("dotnet tool install of {package} failed: {stderr}"));
+        }
     }
 
     if let Some(p) = progress {

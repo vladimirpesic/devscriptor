@@ -109,6 +109,12 @@ pub struct ServerInfo {
     #[serde(default)]
     pub env: HashMap<String, String>,
 
+    /// Directories put before the `PATH` the server is started with, where
+    /// it finds the tools installed beside it ([`SourceInfo::companions`]):
+    /// FsAutoComplete formats with Fantomas, which it looks for there.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub path: Vec<String>,
+
     /// Settings the server takes from its client, sent in
     /// `workspace/didChangeConfiguration` once it is initialized and given,
     /// section by section, to its `workspace/configuration` requests.
@@ -148,6 +154,27 @@ pub struct LicenseFile {
     /// The SHA-256 the file at `url` must match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// The name the file is given under `LICENSES/`, where its own is that of
+    /// another of the server's: Fantomas's `LICENSE.md` beside
+    /// FsAutoComplete's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl LicenseFile {
+    /// The name the file has under `LICENSES/`: its `name`, else that of the
+    /// file at `path` or `url`.
+    #[must_use]
+    pub fn packaged_name(&self) -> &str {
+        self.name.as_deref().unwrap_or_else(|| {
+            let from = self
+                .path
+                .as_deref()
+                .or(self.url.as_deref())
+                .unwrap_or_default();
+            from.rsplit('/').next().unwrap_or(from)
+        })
+    }
 }
 
 impl ServerInfo {
@@ -192,6 +219,39 @@ impl ServerInfo {
         let mut server = self.clone();
         server.source.version = Some(version.to_string());
         server
+    }
+
+    /// The first of the server's companions ([`SourceInfo::companions`]) its
+    /// install in `server_dir` lacks: an npm package without its
+    /// `node_modules/<name>/`, a .NET tool without its store at its version.
+    /// An install made without its companions is installed again.
+    #[must_use]
+    pub fn lacks_companion(&self, server_dir: &std::path::Path) -> Option<&str> {
+        self.source
+            .companions
+            .iter()
+            .map(String::as_str)
+            .find(|companion| {
+                let Some((name, version)) = companion
+                    .rsplit_once('@')
+                    .filter(|(name, _)| !name.is_empty())
+                else {
+                    return false;
+                };
+                match self.source.source_type {
+                    SourceType::Npm => !server_dir
+                        .join("node_modules")
+                        .join(name)
+                        .join("package.json")
+                        .is_file(),
+                    SourceType::DotnetTool => !server_dir
+                        .join("bin/.store")
+                        .join(name.to_ascii_lowercase())
+                        .join(version.to_ascii_lowercase())
+                        .is_dir(),
+                    _ => false,
+                }
+            })
     }
 
     /// Whether `recorded`, the version an install records in its `.version`,
@@ -289,11 +349,13 @@ pub struct SourceInfo {
     /// extension, which PHP on Windows has not). Empty is every platform.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub published_for: Vec<String>,
-    /// npm packages installed beside the server (`name@version`), which it
-    /// needs but does not depend on: typescript-language-server and volar
-    /// refuse to start without a TypeScript to point at, and
-    /// sql-language-server reaches into a `vscode-languageserver-protocol`
-    /// that newer versions hide behind an `exports` map.
+    /// Packages installed beside the server with its own package manager
+    /// (`name@version`), which it needs but does not depend on: npm's
+    /// typescript-language-server and volar refuse to start without a
+    /// TypeScript to point at, and sql-language-server reaches into a
+    /// `vscode-languageserver-protocol` that newer versions hide behind an
+    /// `exports` map; the .NET tool FsAutoComplete formats with the Fantomas
+    /// installed beside it, which it finds on its `PATH` (`path`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub companions: Vec<String>,
 }
@@ -333,8 +395,8 @@ mod tests {
 
     /// Every packaged server names its license files, each either a file of
     /// the installed server or one at a commit of its publisher's repository
-    /// with the SHA-256 it must match, under a name no other of its files
-    /// has; a server that comes with its toolchain, or whose builds expire,
+    /// with the SHA-256 it must match, under a name (its own, or the one it is
+    /// given) no other of its files has; a server that comes with its toolchain, or whose builds expire,
     /// is not packaged.
     #[test]
     fn every_packaged_server_names_its_license_files() {
@@ -356,7 +418,13 @@ mod tests {
             );
             let mut names = Vec::new();
             for file in &server.license_files {
-                let name = match (&file.path, &file.url, &file.sha256) {
+                if let Some(name) = &file.name {
+                    assert!(
+                        !name.contains('/') && !name.contains('\\') && name != "..",
+                        "{id}: {name}"
+                    );
+                }
+                match (&file.path, &file.url, &file.sha256) {
                     (Some(path), None, None) => {
                         assert!(
                             !path.starts_with('/')
@@ -364,7 +432,6 @@ mod tests {
                                 && !path.split('/').any(|part| part == ".."),
                             "{id}: {path}"
                         );
-                        path.rsplit('/').next().unwrap()
                     }
                     (None, Some(url), Some(sha256)) => {
                         let commit = url
@@ -373,10 +440,10 @@ mod tests {
                             .unwrap_or_default();
                         assert!(hex(commit, 40), "{id}: {url} is not at a commit");
                         assert!(hex(sha256, 64), "{id}: {sha256}");
-                        url.rsplit('/').next().unwrap()
                     }
                     _ => panic!("{id}: a license file has a path, or a url and its sha256"),
-                };
+                }
+                let name = file.packaged_name();
                 assert!(!name.is_empty() && !name.contains('*'), "{id}: {name}");
                 names.push(name);
             }
@@ -639,6 +706,31 @@ mod tests {
         let pyright = registry.get_server("pyright").unwrap();
         assert_eq!(pyright.pinned_build(), None);
         assert!(!pyright.outdated_by(Some("0.1.0")));
+    }
+
+    /// An install lacks a companion until it is where its package manager
+    /// puts it: an npm package in `node_modules/`, a .NET tool in its tool
+    /// path's store, at its version.
+    #[test]
+    fn an_install_lacks_a_companion_its_package_manager_has_not_put_in() {
+        let registry = ServerRegistry::load().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let fsac = registry.get_server("fsautocomplete").unwrap();
+        assert_eq!(fsac.lacks_companion(dir.path()), Some("fantomas@7.0.5"));
+        std::fs::create_dir_all(dir.path().join("bin/.store/fantomas/7.0.4")).unwrap();
+        assert_eq!(fsac.lacks_companion(dir.path()), Some("fantomas@7.0.5"));
+        std::fs::create_dir_all(dir.path().join("bin/.store/fantomas/7.0.5")).unwrap();
+        assert_eq!(fsac.lacks_companion(dir.path()), None);
+
+        let volar = registry.get_server("volar").unwrap();
+        assert_eq!(volar.lacks_companion(dir.path()), Some("typescript@5.9.3"));
+        let typescript = dir.path().join("node_modules/typescript");
+        std::fs::create_dir_all(&typescript).unwrap();
+        std::fs::write(typescript.join("package.json"), "{}").unwrap();
+        assert_eq!(volar.lacks_companion(dir.path()), None);
+
+        let pyright = registry.get_server("pyright").unwrap();
+        assert_eq!(pyright.lacks_companion(dir.path()), None);
     }
 
     /// A server whose builds expire tracks its latest build, found in its

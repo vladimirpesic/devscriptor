@@ -483,6 +483,83 @@ fn an_install_of_another_version_is_replaced() {
     assert!(!log.contains("pyright@"), "{log}");
 }
 
+/// `dotnet` that logs what it is asked to install to `$DOTNET_LOG`, and
+/// installs a placeholder of it into its tool path, where a tool path keeps
+/// it: `<tool path>/.store/<package>/<version>/`.
+const DOTNET: &str = r#"#!/bin/sh
+echo "$*" >> "$DOTNET_LOG"
+for arg in "$@"; do
+    case "$prev" in
+        --version) version=$arg ;;
+    esac
+    case "$arg" in
+        --tool-path=*) tool_path=${arg#--tool-path=} ;;
+        -*) ;;
+        *) [ "$prev" = --version ] || package=$arg ;;
+    esac
+    prev=$arg
+done
+mkdir -p "$tool_path/.store/$package/$version"
+echo placeholder > "$tool_path/$package"
+"#;
+
+/// FsAutoComplete is installed with the Fantomas it formats with beside it,
+/// in one tool path; an install of the pinned version without Fantomas is
+/// replaced, and one with it is kept.
+#[test]
+#[cfg_attr(
+    not(target_os = "linux"),
+    ignore = "the Linux downloaders run on Linux: they need bash 4, and do not look for Homebrew's"
+)]
+fn a_dotnet_tool_is_installed_with_its_companions() {
+    let script = "scripts/linux-x86_64/download-lsp-servers.sh";
+    for with_fantomas in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let log = root.path().join("dotnet.log");
+        std::fs::write(&log, "").unwrap();
+        let (stdout, lsp_dir) = run_downloader(
+            root.path(),
+            script,
+            |tools| {
+                offline(tools);
+                write_tool(tools, "dotnet", DOTNET);
+            },
+            &[("DOTNET_LOG", &log)],
+            |lsp_dir| {
+                let fsac = lsp_dir.join("fsautocomplete");
+                std::fs::create_dir_all(fsac.join("bin/.store/fsautocomplete/0.83.0")).unwrap();
+                std::fs::write(fsac.join(".version"), "0.83.0\n").unwrap();
+                if with_fantomas {
+                    std::fs::create_dir_all(fsac.join("bin/.store/fantomas/7.0.5")).unwrap();
+                }
+            },
+        );
+        let log = std::fs::read_to_string(&log).unwrap();
+        let fsac = lsp_dir.join("fsautocomplete");
+        if with_fantomas {
+            assert!(!log.contains("fsautocomplete"), "{log}\n{stdout}");
+            continue;
+        }
+        let bin = fsac.join("bin");
+        let tool_path = format!(
+            "--tool-path={}",
+            lsp_dir.join("fsautocomplete.new/bin").display()
+        );
+        for (package, version) in [("fsautocomplete", "0.83.0"), ("fantomas", "7.0.5")] {
+            assert!(
+                log.lines()
+                    .any(|l| l == format!("tool install {tool_path} {package} --version {version}")),
+                "{log}"
+            );
+            assert!(
+                bin.join(".store").join(package).join(version).is_dir(),
+                "{stdout}"
+            );
+            assert!(bin.join(package).is_file(), "{package}: {stdout}");
+        }
+    }
+}
+
 /// `ruby` whose extension API version is 3.3.0.
 const RUBY: &str = "#!/bin/sh\necho 3.3.0 | tr -d '\\n'\n";
 

@@ -320,8 +320,10 @@ Every archive carries its server's license files, which `license_files` in
 `crates/lsp/src/manager/registry.json` names: a file the server ships (an npm
 package's `LICENSE`, the Dart SDK's) is copied, and one it does not (a bare
 binary such as rust-analyzer's) is fetched from a commit of its publisher's
-repository and checked against the SHA-256 the registry pins. A server whose
-license files cannot be had is not packaged.
+repository and checked against the SHA-256 the registry pins. Each goes under
+`LICENSES/` by its own name, or by the `name` the registry gives it where two
+would share one (Fantomas's `LICENSE.md`, beside fsautocomplete's). A server
+whose license files cannot be had is not packaged.
 
 The platforms are `linux-x86_64`, `linux-aarch64`, `macos-x86_64`,
 `macos-aarch64` and `windows-x86_64`, and each has a directory in `scripts/`:

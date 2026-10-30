@@ -144,11 +144,28 @@ impl LspManager {
         )
     }
 
-    /// Whether [`Self::install`] installs `server_id`: it is not installed, or
-    /// its launcher fetches the libraries it runs on ([`Self::fetches_its_libraries`]).
+    /// Whether [`Self::install`] installs `server_id`: it is not installed,
+    /// its launcher fetches the libraries it runs on
+    /// ([`Self::fetches_its_libraries`]), or it was installed without the
+    /// tools it runs beside it ([`Self::lacks_companion`]).
     #[must_use]
     pub fn needs_install(&self, server_id: &str) -> bool {
-        !self.is_installed(server_id) || self.fetches_its_libraries(server_id)
+        !self.is_installed(server_id)
+            || self.fetches_its_libraries(server_id)
+            || self.lacks_companion(server_id).is_some()
+    }
+
+    /// The first of the tools installed beside `server_id` that its install
+    /// lacks (FsAutoComplete's Fantomas, which it formats with):
+    /// [`Self::install`] installs it again, with them.
+    #[must_use]
+    pub fn lacks_companion(&self, server_id: &str) -> Option<&str> {
+        let info = self.registry.get_server(server_id)?;
+        let server_dir = self.install_dir.join(server_id);
+        if !server_dir.join(".installed").exists() {
+            return None;
+        }
+        info.lacks_companion(&server_dir)
     }
 
     /// Whether the Coursier launcher of `server_id` is a thin one, which
@@ -282,14 +299,20 @@ impl LspManager {
             return Ok(InstallationResult::MissingPrerequisite(missing.join(", ")));
         }
 
-        // An install of another build than the pinned or the latest one, or
-        // one built for another Ruby, is replaced, not added to: its files
-        // would mix with the new build's.
+        // An install of another build than the pinned or the latest one, one
+        // without its companions, or one built for another Ruby, is replaced,
+        // not added to: its files would mix with the new build's.
         if let Some(recorded) = superseded {
             info!(
                 "Replacing {} {recorded} with its latest build, {}",
                 server_info.name,
                 server_info.source.version.as_deref().unwrap_or("?")
+            );
+            std::fs::remove_dir_all(&server_dir)?;
+        } else if let Some(companion) = self.lacks_companion(server_id) {
+            info!(
+                "Replacing {}, installed without {companion}, with one beside it",
+                server_info.name
             );
             std::fs::remove_dir_all(&server_dir)?;
         } else if self.is_outdated(server_id) {

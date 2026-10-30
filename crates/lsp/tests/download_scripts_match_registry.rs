@@ -516,16 +516,29 @@ fn downloaders_install_the_builds_the_registry_pins() {
                     call
                 }
                 (SourceType::DotnetTool, false) => {
-                    format!(
+                    let mut call = format!(
                         "download_dotnet \"{}\" \"{package}\" \"{version}\"",
                         info.id
-                    )
+                    );
+                    for companion in &source.companions {
+                        call.push_str(&format!(" \"{companion}\""));
+                    }
+                    call
                 }
                 (SourceType::DotnetTool, true) => {
-                    format!(
+                    let mut call = format!(
                         "Download-Dotnet \"{}\" \"{package}\" \"{version}\"",
                         info.id
-                    )
+                    );
+                    if !source.companions.is_empty() {
+                        let companions: Vec<String> = source
+                            .companions
+                            .iter()
+                            .map(|c| format!("\"{c}\""))
+                            .collect();
+                        call.push_str(&format!(" @({})", companions.join(", ")));
+                    }
+                    call
                 }
                 (SourceType::Coursier, false) => format!("METALS_VERSION=\"{version}\""),
                 (SourceType::Coursier, true) => format!("$metalsVer = \"{version}\""),

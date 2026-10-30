@@ -64,7 +64,8 @@ $script:Packaged = [ordered]@{}
 # Put the server's license files, as registry.json names them, in its
 # LICENSES\: copied from the server's own files where it ships them, else
 # fetched from a commit of its publisher's repository and checked against the
-# SHA-256 the registry pins. A server without them is not packaged.
+# SHA-256 the registry pins, each under its own name or the `name` the registry
+# gives it. A server without them is not packaged.
 function Add-LicenseFiles([string]$serverId) {
     $dir = Join-Path $LspServersDir $serverId
     $licenses = Join-Path $dir "LICENSES"
@@ -83,9 +84,10 @@ function Add-LicenseFiles([string]$serverId) {
                 Write-Err "${serverId}: no $($file.path) to take its license from"
                 return $false
             }
-            Copy-Item -Path $found.FullName -Destination (Join-Path $licenses $found.Name)
+            $name = if ($file.name) { $file.name } else { $found.Name }
+            Copy-Item -Path $found.FullName -Destination (Join-Path $licenses $name)
         } else {
-            $name = ($file.url -split '/')[-1]
+            $name = if ($file.name) { $file.name } else { ($file.url -split '/')[-1] }
             $dest = Join-Path $licenses $name
             $fetched = $true
             try {

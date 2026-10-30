@@ -11,6 +11,7 @@
 #![cfg(feature = "lsp")]
 
 use devscriptor_lsp::manager::mirror;
+use devscriptor_lsp::manager::registry::LicenseFile;
 use devscriptor_lsp::manager::{ServerRegistry, download_from_mirror};
 
 #[tokio::test]
@@ -43,8 +44,7 @@ async fn every_package_installs_from_the_mirror() {
         let unlicensed: Vec<&str> = server
             .license_files
             .iter()
-            .filter_map(|file| file.path.as_deref().or(file.url.as_deref()))
-            .map(|from| from.rsplit('/').next().unwrap_or(from))
+            .map(LicenseFile::packaged_name)
             .filter(|name| !dir.join("LICENSES").join(name).is_file())
             .collect();
         if unlicensed.is_empty() {

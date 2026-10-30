@@ -25,7 +25,7 @@ Sizes are those of a Linux x86_64 install.
 | `clangd` | C, C++, CUDA, Objective-C, Objective-C++ | GitHub release | latest | Nothing |
 | `csharp-ls` | C# | `dotnet tool` | 0.16.0 | .NET SDK |
 | `dart-ls` | Dart | Google's Dart SDK archive | 3.12.2 | Nothing (it is the Dart SDK) |
-| `fsautocomplete` | F# | `dotnet tool` | 0.83.0 | .NET SDK |
+| `fsautocomplete` | F# | `dotnet tool`, with Fantomas | 0.83.0 | .NET SDK |
 | `gopls` | Go | `go install` | latest | Go 1.20+ |
 | `graphql-language-service` | GraphQL | npm (`graphql-language-service-cli`) | 3.5.0 | Node.js 18+ |
 | `html-languageserver` | HTML | npm (`vscode-langservers-extracted`) | 4.10.0 | Node.js 18+ |
@@ -140,11 +140,18 @@ packages, installed with their dependencies in their own `node_modules/`. They n
 
 ## .NET servers
 
-`csharp-ls` (about 110 MB) and `fsautocomplete` (about 340 MB) are .NET tools,
+`csharp-ls` (about 110 MB) and `fsautocomplete` (about 365 MB) are .NET tools,
 installed with `dotnet tool install` at the versions the registry pins. They need
 the **.NET SDK** (`dotnet` on the PATH, or `DOTNET_ROOT`). Both run with
 `DOTNET_ROLL_FORWARD=Major`, so a newer .NET than the one they were built for runs
 them, and a .NET tool is told where `dotnet` is.
+
+fsautocomplete formats with Fantomas, a .NET tool of its own, which is installed
+beside it (Fantomas 7.0.5, the newest that runs on .NET 8) and put first on its
+PATH, where fsautocomplete looks for one after the project's and the user's
+`dotnet` tools. An fsautocomplete installed without it answers a formatting
+request with "Fantomas install not found"; `devscriptor lsp setup fsautocomplete`
+replaces such an install with one beside Fantomas.
 
 ## Java servers
 

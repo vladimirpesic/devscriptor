@@ -578,6 +578,17 @@ impl LspResolver {
         ) {
             env.entry("DOTNET_ROOT".to_string()).or_insert(root);
         }
+        if let Some(path) = info.and_then(|i| {
+            server_path(
+                i.path
+                    .iter()
+                    .filter(|dir| applies(dir))
+                    .map(|dir| PathBuf::from(placeholders.apply(dir))),
+                std::env::var_os("PATH"),
+            )
+        }) {
+            env.insert("PATH".to_string(), path);
+        }
 
         let initialization_options =
             info.and_then(|i| i.initialization_options.as_ref())
@@ -648,6 +659,24 @@ impl LspResolver {
             .map(|&s| s.to_string())
             .collect()
     }
+}
+
+/// The `PATH` a server is started with where the registry puts `dirs` before
+/// the one it inherits (`inherited`), or none where it puts none, or where
+/// the result is not text the environment can hold.
+fn server_path(
+    dirs: impl Iterator<Item = PathBuf>,
+    inherited: Option<std::ffi::OsString>,
+) -> Option<String> {
+    let mut dirs = dirs.peekable();
+    dirs.peek()?;
+    let inherited: Vec<PathBuf> = inherited
+        .map(|path| std::env::split_paths(&path).collect())
+        .unwrap_or_default();
+    std::env::join_paths(dirs.chain(inherited))
+        .ok()?
+        .into_string()
+        .ok()
 }
 
 /// The `DOTNET_ROOT` a .NET tool is started with where the environment sets
@@ -806,6 +835,55 @@ mod tests {
         );
         let options = serde_json::to_string(&ts.initialization_options).unwrap();
         assert!(!options.contains("node_modules/typescript"), "{options}");
+    }
+
+    /// FsAutoComplete installed by Devscriptor finds the Fantomas installed
+    /// beside it first on its PATH; one found elsewhere runs with the PATH it
+    /// inherits.
+    #[test]
+    fn a_server_finds_the_tools_installed_beside_it_on_its_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resolver = LspResolver::with_dirs(tmp.path().to_path_buf(), tmp.path().to_path_buf());
+        let installed = resolver.build_config(
+            "fsautocomplete",
+            &LspSource::Installed(PathBuf::from("/srv/lsp/fsautocomplete/bin/fsautocomplete")),
+        );
+        let path = installed.env.get("PATH").expect("a PATH of its own");
+        assert_eq!(
+            std::env::split_paths(path).next(),
+            Some(PathBuf::from("/srv/lsp/fsautocomplete/bin"))
+        );
+        let elsewhere = resolver.build_config(
+            "fsautocomplete",
+            &LspSource::SystemWide(PathBuf::from("/home/u/.dotnet/tools/fsautocomplete")),
+        );
+        assert!(!elsewhere.env.contains_key("PATH"), "{:?}", elsewhere.env);
+    }
+
+    /// The registry's directories come before the inherited PATH; with none,
+    /// the server inherits it as it is.
+    #[test]
+    fn a_servers_directories_come_before_the_path_it_inherits() {
+        let inherited = std::env::join_paths(["/usr/bin", "/bin"]).unwrap();
+        let path = server_path(
+            [PathBuf::from("/srv/lsp/fsautocomplete/bin")].into_iter(),
+            Some(inherited.clone()),
+        )
+        .unwrap();
+        assert_eq!(
+            std::env::split_paths(&path).collect::<Vec<_>>(),
+            ["/srv/lsp/fsautocomplete/bin", "/usr/bin", "/bin"].map(PathBuf::from)
+        );
+        assert_eq!(
+            server_path(
+                [PathBuf::from("/srv/lsp/fsautocomplete/bin")].into_iter(),
+                None
+            )
+            .as_deref()
+            .map(PathBuf::from),
+            Some(PathBuf::from("/srv/lsp/fsautocomplete/bin"))
+        );
+        assert_eq!(server_path(std::iter::empty(), Some(inherited)), None);
     }
 
     /// A .NET tool is told where the `dotnet` on PATH is when the environment
