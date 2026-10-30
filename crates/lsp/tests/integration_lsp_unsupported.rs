@@ -5,7 +5,8 @@
 //! Internal error`. Where the server declares no capability for the request
 //! and it fails, the tool says the server does not support the feature; a
 //! server that answers all the same is taken at its word, and the error of a
-//! request it does declare is its own.
+//! request it does declare is its own, but for `-32601`: sql-language-server
+//! declares renames it has no handler for.
 #![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
@@ -16,12 +17,13 @@ use devscriptor_lsp::config::{
     Config, LifecycleConfig, LspServerConfig, ServerSettings, WorkspaceConfig,
 };
 use devscriptor_lsp::mcp::tools::{
-    DefinitionParams, FoldingRangesParams, HoverParams, TypeHierarchyParams,
+    DefinitionParams, FoldingRangesParams, HoverParams, ReferencesParams, TypeHierarchyParams,
 };
 
-/// Declares hover and definition. Hover answers; definition fails; folding
-/// ranges, which it does not declare, fail as a server's do; a type
-/// hierarchy, which it does not declare either, answers all the same.
+/// Declares hover, definition and references. Hover answers; definition
+/// fails; references have no handler; folding ranges, which it does not
+/// declare, fail as a server's do; a type hierarchy, which it does not
+/// declare either, answers all the same.
 const SERVER: &str = r#"
 import sys, json
 
@@ -57,7 +59,8 @@ while True:
     method, rid = msg.get("method"), msg["id"]
     if method == "initialize":
         send({"jsonrpc": "2.0", "id": rid, "result": {"capabilities": {
-            "textDocumentSync": 1, "hoverProvider": True, "definitionProvider": True}}})
+            "textDocumentSync": 1, "hoverProvider": True, "definitionProvider": True,
+            "referencesProvider": True}}})
     elif method == "textDocument/hover":
         send({"jsonrpc": "2.0", "id": rid, "result": {"contents": "a hover"}})
     elif method == "textDocument/definition":
@@ -134,6 +137,21 @@ async fn what_the_server_does_not_offer_fails_as_unsupported() {
         .unwrap_err()
         .to_string();
     assert!(declared.contains("no index yet"), "{declared}");
+
+    let unhandled = translator
+        .handle_references(ReferencesParams {
+            file_path: file_path.clone(),
+            line: 0,
+            character: 1,
+            include_declaration: true,
+        })
+        .await
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        unhandled,
+        "the plain language server does not support references"
+    );
 
     let answered = translator
         .handle_type_hierarchy(TypeHierarchyParams {

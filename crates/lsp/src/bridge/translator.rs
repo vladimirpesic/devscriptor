@@ -1321,7 +1321,9 @@ impl Translator {
 
     /// `error`, a failure of `method` on the server of `file`, or
     /// [`LspError::Unsupported`] where the server declares no capability for
-    /// `method`. A broken connection is not a missing feature, and stays.
+    /// `method`, or answers that it has no such method (`-32601`), whatever
+    /// it declares: sql-language-server declares renames it has no handler
+    /// for. A broken connection is not a missing feature, and stays.
     async fn unsupported_unless_declared(
         &self,
         file: &Path,
@@ -1338,6 +1340,18 @@ impl Translator {
             return error;
         }
         let language_id = self.get_language_id(file);
+        if matches!(
+            error,
+            LspError::LspServerError {
+                code: METHOD_NOT_FOUND,
+                ..
+            }
+        ) {
+            return LspError::Unsupported {
+                language_id,
+                feature: feature.to_string(),
+            };
+        }
         let servers = self.servers.read().await;
         match servers.get(&language_id) {
             Some(server) if !capability_supported(server.capabilities(), provider) => {
@@ -3575,6 +3589,9 @@ fn with_formatter_hint(error: LspError) -> LspError {
         other => other,
     }
 }
+
+/// JSON-RPC's error code for a method the server does not have.
+const METHOD_NOT_FOUND: i32 = -32601;
 
 /// The capability a server declares for the LSP `method`, and the feature it
 /// is named as in an [`LspError::Unsupported`].

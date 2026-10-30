@@ -231,7 +231,8 @@ first request reliable:
   same *"does not support …"*, rather than the server's own error (`-32601 Unhandled
   method`, or jdtls's `-32603 Internal error`). A server that answers a request it did
   not advertise is taken at its word, and the error of one it did advertise is its
-  own.
+  own, but for `-32601`, a method it has none for: sql-language-server advertises
+  renames it does not handle.
 - **Pushed diagnostics.** Servers that only push diagnostics after a file opens or
   changes (typescript-language-server, clangd, gopls, jdtls) have them collected;
   `get_diagnostics` waits for the pushes to settle.
