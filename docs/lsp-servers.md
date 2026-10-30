@@ -96,7 +96,7 @@ the newest release at install time.
 
 ### kotlin-lsp (Kotlin)
 
-- **Size:** about 510 MB unpacked, from a ~350 MB download.
+- **Size:** about 1.2 GB unpacked, from a ~360 MB download.
 - **Binary:** `bin/intellij-server`, started as
   `intellij-server --stdio --system-path=<cache>/devscriptor/kotlin-lsp`, where it
   keeps its caches and indexes.
