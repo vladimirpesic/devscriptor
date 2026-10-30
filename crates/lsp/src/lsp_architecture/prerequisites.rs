@@ -650,7 +650,8 @@ mod tests {
         assert!(result.satisfied.len() + result.missing.len() >= 2);
     }
 
-    /// 4.5 AC min_version: parse_semver extracts version tuples and comparison works.
+    /// `min_version`: parse_semver extracts version tuples, which compare as
+    /// the versions do.
     #[test]
     fn test_min_version_semver_parsing() {
         assert_eq!(parse_semver("18.17.1"), Some((18, 17, 1)));
@@ -698,7 +699,7 @@ mod tests {
         assert!(get_prerequisites("dart-ls").is_empty());
     }
 
-    /// 4.5 AC min_version: a version meeting the minimum passes; one below fails.
+    /// `min_version`: a version meeting the minimum passes; one below fails.
     #[test]
     fn test_min_version_comparison() {
         // check_version_gte is hard to unit-test without spawning a process,

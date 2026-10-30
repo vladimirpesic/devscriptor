@@ -1341,7 +1341,7 @@ mod tests {
         );
     }
 
-    /// 4.2 AC: Only forward edges (Calls/Uses/…) mark a target as used.
+    /// Only forward edges (Calls/Uses/…) mark a target as used.
     /// A reverse edge CalledBy(source=A, target=B) must NOT mark B as used —
     /// B is the caller and may itself be dead code.
     #[test]

@@ -301,7 +301,7 @@ async fn test_dead_code_analysis() {
     let report = analyzer.analyze().await;
 
     // Analysis should succeed; with entities in the database the detector
-    // can identify candidates even without relationships (audit fix T5).
+    // can identify candidates even without relationships.
     let report = report.expect("Dead code analysis should complete successfully");
     assert!(
         !report.dead_functions.is_empty() || !report.unused_imports.is_empty(),

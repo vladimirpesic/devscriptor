@@ -3357,7 +3357,7 @@ mod tests {
         assert_eq!(loc.start_column, 0);
     }
 
-    // ── 4.1 AC: Constant over-extraction guard ────────────────────────────────
+    // ── Constant over-extraction guard ────────────────────────────────────────
 
     fn print_tree(node: tree_sitter::Node, content: &str, indent: usize) {
         let prefix = " ".repeat(indent * 2);

@@ -51,7 +51,7 @@ use serde::{Deserialize, Serialize};
 /// These limits prevent O(n²) or worse algorithms from running on
 /// excessively large inputs, which would cause unbounded CPU/memory usage.
 /// Also includes resource-guard limits (e.g. max concurrent jobs) to prevent
-/// unbounded memory growth (audit fix S2-14).
+/// unbounded memory growth.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct AnalysisGuardConfig {
     /// Maximum number of entities (functions/classes/methods) to feed into

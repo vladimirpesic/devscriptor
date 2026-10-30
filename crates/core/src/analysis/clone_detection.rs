@@ -975,8 +975,9 @@ mod tests {
         );
     }
 
-    /// 4.3 AC: Single-line comment at end of a line must not wipe everything
-    /// after it on subsequent lines (the classic `//.*$` + pre-collapsed-newlines bug).
+    /// A single-line comment at the end of a line takes nothing on the lines
+    /// after it with it, as `//.*$` applied once the newlines are collapsed
+    /// would.
     #[test]
     fn test_comment_stripping_does_not_eat_subsequent_lines() {
         let detector = CloneDetector::new();
@@ -989,7 +990,7 @@ mod tests {
         );
     }
 
-    /// 4.3 AC: A >2,000-fragment input must return results rather than an early exit.
+    /// An input of more than 2,000 fragments returns results rather than none.
     #[test]
     fn test_chunked_processing_returns_results_above_limit() {
         use crate::analysis::AnalysisGuardConfig;

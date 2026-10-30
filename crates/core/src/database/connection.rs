@@ -10,7 +10,7 @@ use std::sync::{LazyLock, Once};
 
 /// Global cache mapping database paths to their connection pools.
 /// Prevents multiple `Database::new()` calls for the same file from
-/// creating competing r2d2 pools (A3 remediation).
+/// creating competing r2d2 pools.
 static POOL_CACHE: LazyLock<Mutex<HashMap<String, ConnectionPool>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 

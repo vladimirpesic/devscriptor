@@ -1191,7 +1191,7 @@ mod tests {
         ));
     }
 
-    /// 4.4 AC: content_is_objc detects ObjC markers and ignores MATLAB content.
+    /// content_is_objc detects ObjC markers and ignores MATLAB content.
     #[test]
     fn test_content_is_objc_sniffer() {
         assert!(content_is_objc(

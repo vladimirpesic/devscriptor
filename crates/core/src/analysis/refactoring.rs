@@ -455,7 +455,7 @@ impl RefactoringAnalyzer {
     /// Check for high cyclomatic complexity.
     ///
     /// Uses the shared algorithm from [`ComplexityAnalyzer`](crate::analysis::complexity::ComplexityAnalyzer)
-    /// (audit fix A5) so that both analyzers report the same score for the same code.
+    /// so that both analyzers report the same score for the same code.
     fn check_cyclomatic_complexity(&mut self, function: &Function) {
         let complexity =
             crate::analysis::complexity::ComplexityAnalyzer::calculate_cyclomatic_complexity_for_code(

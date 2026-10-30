@@ -623,7 +623,7 @@ impl ComplexityAnalyzer {
         1 + self.count_decision_points(body, config)
     }
 
-    /// Shared cyclomatic complexity calculator (audit fix A5).
+    /// Shared cyclomatic complexity calculator.
     ///
     /// Uses the same decision-point algorithm as the full
     /// [`ComplexityAnalyzer`]
