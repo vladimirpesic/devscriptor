@@ -113,7 +113,11 @@ impl<'de> Deserialize<'de> for InboundMessage {
                 }
 
                 let has_id = obj.contains_key("id");
-                let is_response = obj.contains_key("result") || obj.contains_key("error");
+                // A message with an id and a method is the server's request;
+                // one with an id and no method answers ours, `result` or not:
+                // servers built on lsp4j (jdtls, Metals) leave a null result
+                // out, though JSON-RPC asks for it.
+                let is_response = !obj.contains_key("method");
 
                 if has_id {
                     let value = Value::Object(obj);
@@ -210,6 +214,33 @@ mod tests {
             RequestId::Number(n) => assert_eq!(n, 2),
             _ => panic!("Expected Number variant"),
         }
+    }
+
+    /// An answer whose result is null may leave `result` out, as lsp4j's
+    /// servers do: it is still a response, to the request of its id.
+    #[test]
+    fn an_answer_without_a_result_is_a_response() {
+        let message: InboundMessage = serde_json::from_str(r#"{"jsonrpc":"2.0","id":7}"#).unwrap();
+        match message {
+            InboundMessage::Response(response) => {
+                assert_eq!(response.id, RequestId::Number(7));
+                assert!(response.result.is_none() && response.error.is_none());
+            }
+            other => panic!("not a response: {other:?}"),
+        }
+        let request: InboundMessage = serde_json::from_str(
+            r#"{"jsonrpc":"2.0","id":"a","method":"client/registerCapability","params":{}}"#,
+        )
+        .unwrap();
+        assert!(matches!(request, InboundMessage::Request(_)));
+        let notification: InboundMessage =
+            serde_json::from_str(r#"{"jsonrpc":"2.0","method":"$/progress","params":{}}"#).unwrap();
+        assert!(matches!(notification, InboundMessage::Notification(_)));
+        let failure: InboundMessage = serde_json::from_str(
+            r#"{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"no"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(failure, InboundMessage::Response(r) if r.error.is_some()));
     }
 
     #[test]
