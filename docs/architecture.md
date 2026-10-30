@@ -571,7 +571,7 @@ Available immediately after: FTS5 keyword search, entity/relationship queries, c
      batch_size  = 1 text per inference run (--batch-size overrides)
      concurrency = min(cores, 2), lowered while concurrency × batch_size × 100 MB > free − 2836 MB
      threads     = cores / concurrency matmul threads per run
-   Load EmbeddingService (Jina 768-dim, INT8-quantized, ~150 MB on disk; downloaded on first use;
+   Load EmbeddingService (Jina 768-dim, INT8-quantized, ~160 MB on disk; downloaded on first use;
    its matrix products rewritten to run in f32)
 
 2. db.get_unembedded_entity_ids(force=false)

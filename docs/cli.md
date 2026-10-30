@@ -133,7 +133,7 @@ outrank it. Its header names the file in a `Config` line. See [Configuration](co
 
 By default `scan` is fast — it never loads the ONNX model. Pass `--embed` to generate vectors
 inline (requires ≥ 4 GB available RAM). The model used is always
-`jinaai/jina-embeddings-v2-base-code` (768-dim, INT8-quantized, ~150 MB on disk).
+`jinaai/jina-embeddings-v2-base-code` (768-dim, INT8-quantized, ~160 MB on disk).
 
 **Re-scans:**
 
