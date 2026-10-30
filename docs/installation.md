@@ -71,7 +71,8 @@ build also runs on Apple Silicon through Rosetta 2, but prefer the native one th
 ### Windows
 
 1. Download `devscriptor-<version>-x86_64-pc-windows-msvc.zip` from the
-   [release page](https://github.com/vladimirpesic/devscriptor/releases/latest) and extract it. It holds one file, `devscriptor.exe`.
+   [release page](https://github.com/vladimirpesic/devscriptor/releases/latest) and extract it. It holds a folder,
+   `devscriptor-<version>-x86_64-pc-windows-msvc`, with the one file `devscriptor.exe` in it.
 2. Move it to a folder on your `PATH`, or add the extracted folder to it.
 3. Open a new PowerShell or Command Prompt window and run `devscriptor --version`.
 
