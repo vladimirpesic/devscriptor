@@ -1859,16 +1859,19 @@ impl Translator {
 
         let lsp_params = lsp_types::CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri },
-            range: lsp_types::Range {
-                start: lsp_types::Position {
-                    line: params.range.start.line,
-                    character: params.range.start.character,
+            range: within_document(
+                file_path,
+                lsp_types::Range {
+                    start: lsp_types::Position {
+                        line: params.range.start.line,
+                        character: params.range.start.character,
+                    },
+                    end: lsp_types::Position {
+                        line: params.range.end.line,
+                        character: params.range.end.character,
+                    },
                 },
-                end: lsp_types::Position {
-                    line: params.range.end.line,
-                    character: params.range.end.character,
-                },
-            },
+            ),
             context: lsp_types::CodeActionContext {
                 diagnostics: vec![],
                 only: None,
@@ -2686,16 +2689,19 @@ impl Translator {
 
         let lsp_params = lsp_types::InlayHintParams {
             text_document: lsp_types::TextDocumentIdentifier { uri },
-            range: lsp_types::Range {
-                start: lsp_types::Position {
-                    line: params.start_line,
-                    character: params.start_character,
+            range: within_document(
+                file_path,
+                lsp_types::Range {
+                    start: lsp_types::Position {
+                        line: params.start_line,
+                        character: params.start_character,
+                    },
+                    end: lsp_types::Position {
+                        line: params.end_line,
+                        character: params.end_character,
+                    },
                 },
-                end: lsp_types::Position {
-                    line: params.end_line,
-                    character: params.end_character,
-                },
-            },
+            ),
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
         };
 
@@ -2840,16 +2846,19 @@ impl Translator {
 
         let lsp_params = lsp_types::DocumentRangeFormattingParams {
             text_document: lsp_types::TextDocumentIdentifier { uri },
-            range: lsp_types::Range {
-                start: lsp_types::Position {
-                    line: params.range.start.line,
-                    character: params.range.start.character,
+            range: within_document(
+                file_path,
+                lsp_types::Range {
+                    start: lsp_types::Position {
+                        line: params.range.start.line,
+                        character: params.range.start.character,
+                    },
+                    end: lsp_types::Position {
+                        line: params.range.end.line,
+                        character: params.range.end.character,
+                    },
                 },
-                end: lsp_types::Position {
-                    line: params.range.end.line,
-                    character: params.range.end.character,
-                },
-            },
+            ),
             options: lsp_types::FormattingOptions {
                 tab_size: 4,
                 insert_spaces: true,
@@ -3879,6 +3888,44 @@ fn symbols_from_lsp(
     }
 }
 
+/// `range` within the document `file` holds ([`within_text`]), or as it is
+/// where the file cannot be read.
+fn within_document(file: &Path, range: lsp_types::Range) -> lsp_types::Range {
+    match std::fs::read_to_string(file) {
+        Ok(text) => within_text(&text, range),
+        Err(_) => range,
+    }
+}
+
+/// `range` within `text`: a position past its last line is its end, and one
+/// past the end of its line is that line's end, as LSP has a server take it.
+/// Servers refuse a range that reaches past the document (clangd's "Line
+/// value is out of range", rust-analyzer's "Invalid offset"), which a caller
+/// asking about a whole file may well give. Columns count UTF-16 code units.
+fn within_text(text: &str, range: lsp_types::Range) -> lsp_types::Range {
+    // A final newline ends the document on an empty line.
+    let lines: Vec<&str> = text.split('\n').collect();
+    let last = u32::try_from(lines.len() - 1).unwrap_or(u32::MAX);
+    let within = |position: lsp_types::Position| {
+        let (line, character) = if position.line > last {
+            (last, u32::MAX)
+        } else {
+            (position.line, position.character)
+        };
+        let text = lines[line as usize];
+        let text = text.strip_suffix('\r').unwrap_or(text);
+        let length = u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX);
+        lsp_types::Position {
+            line,
+            character: character.min(length),
+        }
+    };
+    lsp_types::Range {
+        start: within(range.start),
+        end: within(range.end),
+    }
+}
+
 /// The range of `name` in `text`, for a symbol the server put at `range`:
 /// `range` where the text there starts with the name, else the name's first
 /// whole-word occurrence inside `range` on a line that is no comment, and
@@ -4212,6 +4259,34 @@ mod tests {
                 character: b.1,
             },
         }
+    }
+
+    /// A range past the document's end is taken to its end: past the last
+    /// line to the end of the document, past a line's end to that line's end,
+    /// in UTF-16 code units; one within it stays.
+    #[test]
+    fn a_range_reaches_no_further_than_the_document() {
+        let range = |start: (u32, u32), end: (u32, u32)| lsp_types::Range {
+            start: lsp_types::Position::new(start.0, start.1),
+            end: lsp_types::Position::new(end.0, end.1),
+        };
+        let text = "fn a() {}\nlet é = 1;\r\n";
+        assert_eq!(
+            within_text(text, range((0, 0), (14, 0))),
+            range((0, 0), (2, 0))
+        );
+        assert_eq!(
+            within_text(text, range((1, 40), (1, 99))),
+            range((1, 10), (1, 10))
+        );
+        assert_eq!(
+            within_text(text, range((0, 3), (1, 4))),
+            range((0, 3), (1, 4))
+        );
+        assert_eq!(
+            within_text("fn a() {}", range((0, 0), (5, 0))),
+            range((0, 0), (0, 9))
+        );
     }
 
     /// FsAutoComplete without Fantomas says it found none, and the error
