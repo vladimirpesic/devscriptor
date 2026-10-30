@@ -1697,9 +1697,10 @@ impl Translator {
         let response: Option<lsp_types::DocumentSymbolResponse> = client
             .request("textDocument/documentSymbol", lsp_params)
             .await?;
+        let text = std::fs::read_to_string(file_path).ok();
 
         Ok(DocumentSymbolsResult {
-            symbols: symbols_from_lsp(response, &params.file_path),
+            symbols: symbols_from_lsp(response, &params.file_path, text.as_deref()),
         })
     }
 
@@ -3783,27 +3784,33 @@ fn percent_decode_utf8(s: &str) -> String {
 }
 
 /// The symbols of `file` as `response` gives them, a tree flattened parent
-/// first. Each symbol of a tree is located at its name and keeps its own
-/// name, its parent's in `container_name`, as a flat answer gives them.
+/// first. Each symbol is located at its name in `text`, the file's (see
+/// [`at_name`]), and keeps its own name, its parent's in `container_name`, as
+/// a flat answer gives them.
 fn symbols_from_lsp(
     response: Option<lsp_types::DocumentSymbolResponse>,
     file: &str,
+    text: Option<&str>,
 ) -> Vec<Symbol> {
     fn flatten(
         symbols: Vec<lsp_types::DocumentSymbol>,
         parent: Option<&str>,
         file: &str,
+        text: Option<&str>,
         out: &mut Vec<Symbol>,
     ) {
         for s in symbols {
+            let range = text.map_or(s.selection_range, |t| {
+                at_name(t, &s.name, s.selection_range)
+            });
             out.push(Symbol {
                 name: s.name.clone(),
                 kind: format!("{:?}", s.kind),
-                location: Location::new(file.to_string(), range_from_lsp(s.selection_range)),
+                location: Location::new(file.to_string(), range_from_lsp(range)),
                 container_name: parent.map(str::to_string),
             });
             if let Some(children) = s.children {
-                flatten(children, Some(&s.name), file, out);
+                flatten(children, Some(&s.name), file, text, out);
             }
         }
     }
@@ -3811,20 +3818,122 @@ fn symbols_from_lsp(
     match response {
         Some(lsp_types::DocumentSymbolResponse::Flat(symbols)) => symbols
             .into_iter()
-            .map(|s| Symbol {
-                name: s.name,
-                kind: format!("{:?}", s.kind),
-                location: location_from_lsp(s.location),
-                container_name: s.container_name,
+            .map(|s| {
+                let mut location = s.location;
+                if let Some(t) = text {
+                    location.range = at_name(t, &s.name, location.range);
+                }
+                Symbol {
+                    name: s.name,
+                    kind: format!("{:?}", s.kind),
+                    location: location_from_lsp(location),
+                    container_name: s.container_name,
+                }
             })
             .collect(),
         Some(lsp_types::DocumentSymbolResponse::Nested(symbols)) => {
             let mut out = Vec::new();
-            flatten(symbols, None, file, &mut out);
+            flatten(symbols, None, file, text, &mut out);
             out
         }
         None => Vec::new(),
     }
+}
+
+/// The range of `name` in `text`, for a symbol the server put at `range`:
+/// `range` where the text there starts with the name, else the name's first
+/// whole-word occurrence inside `range` on a line that is no comment, and
+/// `range` itself where the name is not in it. FSAutoComplete starts a
+/// symbol's selection range at its doc comment, and a flat answer gives a
+/// declaration's whole range (`package com.tidewater.berths;` for the
+/// package): a position there is not on the symbol, and asked about it, a
+/// server finds nothing. The name is also looked for without its signature
+/// (`overlaps(BerthWindow)`) and its qualifier (`Revenue.total`). Columns
+/// count UTF-16 code units, as the server's do.
+fn at_name(text: &str, name: &str, range: lsp_types::Range) -> lsp_types::Range {
+    fn utf16(s: &str) -> u32 {
+        u32::try_from(s.encode_utf16().count()).unwrap_or(u32::MAX)
+    }
+    /// The byte offset of the UTF-16 column `character` in `line`.
+    fn byte_at(line: &str, character: u32) -> Option<usize> {
+        let mut units = 0;
+        for (byte, c) in line.char_indices() {
+            if units >= character {
+                return Some(byte);
+            }
+            units += u32::try_from(c.len_utf16()).unwrap_or(2);
+        }
+        (units >= character).then_some(line.len())
+    }
+    fn identifier(c: char) -> bool {
+        c.is_alphanumeric() || c == '_' || c == '$'
+    }
+    const COMMENTS: &[&str] = &["//", "#", "--", "/*", "*", "(*", ";"];
+
+    let lines: Vec<&str> = text.lines().collect();
+    let mut names = vec![name];
+    for part in [
+        name.split(['(', '<', ' ', ':']).next(),
+        name.rsplit(['.', ':']).next(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !part.is_empty() && !names.contains(&part) {
+            names.push(part);
+        }
+    }
+    let at = |line: u32, character: u32, n: &str| {
+        lines
+            .get(line as usize)
+            .and_then(|l| byte_at(l, character).map(|b| l[b..].starts_with(n)))
+            .unwrap_or(false)
+    };
+    if names
+        .iter()
+        .any(|n| at(range.start.line, range.start.character, n))
+    {
+        return range;
+    }
+    let last = range.end.line.min(
+        u32::try_from(lines.len())
+            .unwrap_or(u32::MAX)
+            .saturating_sub(1),
+    );
+    for n in &names {
+        for line_no in range.start.line..=last {
+            let Some(line) = lines.get(line_no as usize) else {
+                break;
+            };
+            if COMMENTS.iter().any(|c| line.trim_start().starts_with(c)) {
+                continue;
+            }
+            for (byte, _) in line.match_indices(n) {
+                let column = utf16(&line[..byte]);
+                let end = column + utf16(n);
+                let whole_word = !line[..byte].chars().next_back().is_some_and(identifier)
+                    && !line[byte + n.len()..]
+                        .chars()
+                        .next()
+                        .is_some_and(identifier);
+                let inside = (line_no > range.start.line || column >= range.start.character)
+                    && (line_no < range.end.line || end <= range.end.character);
+                if whole_word && inside {
+                    return lsp_types::Range {
+                        start: lsp_types::Position {
+                            line: line_no,
+                            character: column,
+                        },
+                        end: lsp_types::Position {
+                            line: line_no,
+                            character: end,
+                        },
+                    };
+                }
+            }
+        }
+    }
+    range
 }
 
 /// Convert an LSP location to our Location type.
@@ -4052,6 +4161,101 @@ mod tests {
     }
 
     // ---- LSP capability detection (turns opaque -32601 into a clear error) ----
+
+    fn range(a: (u32, u32), b: (u32, u32)) -> lsp_types::Range {
+        lsp_types::Range {
+            start: lsp_types::Position {
+                line: a.0,
+                character: a.1,
+            },
+            end: lsp_types::Position {
+                line: b.0,
+                character: b.1,
+            },
+        }
+    }
+
+    /// A symbol is put at its name: FSAutoComplete's selection range starts
+    /// at the doc comment, and a flat answer gives the whole declaration; one
+    /// already at its name stays, as does one whose name is not in its range.
+    #[test]
+    fn a_symbol_is_put_at_its_name() {
+        let fsharp =
+            "/// Issued sequence numbers, by counter key.\ntype Counters = Map<string, int>\n";
+        assert_eq!(
+            at_name(fsharp, "Counters", range((0, 0), (1, 32))),
+            range((1, 5), (1, 13))
+        );
+        assert_eq!(
+            at_name(fsharp, "Counters", range((1, 5), (1, 13))),
+            range((1, 5), (1, 13))
+        );
+        let java = "package com.tidewater.berths;\n";
+        assert_eq!(
+            at_name(java, "com.tidewater.berths", range((0, 0), (0, 29))),
+            range((0, 8), (0, 28))
+        );
+        // A comment that names it, a longer word that holds it, a signature.
+        let noisy = "// Counters by key\nlet Countersx = 1\nlet Counters(key) = 2\n";
+        assert_eq!(
+            at_name(noisy, "Counters(string)", range((0, 0), (2, 21))),
+            range((2, 4), (2, 12))
+        );
+        assert_eq!(
+            at_name(noisy, "Missing", range((0, 0), (2, 21))),
+            range((0, 0), (2, 21))
+        );
+    }
+
+    /// Columns count UTF-16 code units, as the server's do: `ü` is one, and
+    /// two bytes.
+    #[test]
+    fn a_symbol_is_put_at_its_name_in_utf16_columns() {
+        let text = "fn ü(); fn target() {}\n";
+        assert_eq!(
+            at_name(text, "target", range((0, 0), (0, 22))),
+            range((0, 11), (0, 17))
+        );
+    }
+
+    /// The symbols of a tree answer and of a flat one are both put at their
+    /// names in the file's text.
+    #[test]
+    fn document_symbols_are_located_at_their_names() {
+        let text = "/// The counters.\ntype Counters = int\n";
+        let nested = lsp_types::DocumentSymbolResponse::Nested(vec![
+            #[allow(deprecated)]
+            lsp_types::DocumentSymbol {
+                name: "Counters".into(),
+                detail: None,
+                kind: lsp_types::SymbolKind::STRUCT,
+                tags: None,
+                deprecated: None,
+                range: range((0, 0), (1, 19)),
+                selection_range: range((0, 0), (1, 19)),
+                children: None,
+            },
+        ]);
+        let symbols = symbols_from_lsp(Some(nested), "/p/a.fs", Some(text));
+        assert_eq!(symbols[0].location.range.start.line, 1);
+        assert_eq!(symbols[0].location.range.start.character, 5);
+        let uri: lsp_types::Uri = "file:///p/a.fs".parse().unwrap();
+        #[allow(deprecated)]
+        let flat = lsp_types::DocumentSymbolResponse::Flat(vec![lsp_types::SymbolInformation {
+            name: "Counters".into(),
+            kind: lsp_types::SymbolKind::STRUCT,
+            tags: None,
+            deprecated: None,
+            location: lsp_types::Location {
+                uri,
+                range: range((0, 0), (1, 19)),
+            },
+            container_name: None,
+        }]);
+        let symbols = symbols_from_lsp(Some(flat), "/p/a.fs", Some(text));
+        assert_eq!(symbols[0].location.range.start.line, 1);
+        assert_eq!(symbols[0].location.range.start.character, 5);
+    }
 
     #[test]
     fn capability_supported_reads_lsp_provider_shapes() {
