@@ -625,7 +625,8 @@ fn copy_cargo_locks(folders: &[PathBuf]) {
 /// projects among `folders`, which no build of the project makes and no
 /// option moves elsewhere: Metals' `.metals/` (its database and log), the
 /// `.bloop/` and `.bsp/` of the build it imports (Bloop's project files, and
-/// the build server's connection files), and the
+/// the build server's connection files) and, of an sbt build, the
+/// `project/.bloop/` of its build definition, and the
 /// `.gradle/` Gradle keeps its project cache in at the root of each build
 /// kotlin-lsp or jdtls imports. Each is made before the server starts, when
 /// missing, with a `.gitignore` that ignores it, as ruby-lsp makes its
@@ -635,7 +636,13 @@ fn ignore_state_dirs(language_id: &str, folders: &[PathBuf]) {
     let dirs: Vec<PathBuf> = match language_id {
         "scala" => folders
             .iter()
-            .flat_map(|folder| [".metals", ".bloop", ".bsp"].map(|dir| folder.join(dir)))
+            .flat_map(|folder| {
+                let sbt = folder.join("build.sbt").is_file();
+                [".metals", ".bloop", ".bsp", "project/.bloop"]
+                    .into_iter()
+                    .filter(move |dir| sbt || !dir.starts_with("project/"))
+                    .map(|dir| folder.join(dir))
+            })
             .collect(),
         "kotlin" => gradle_build_roots(folders, &["kt", "kts"])
             .into_iter()
@@ -1058,8 +1065,10 @@ mod tests {
         assert_eq!(RUST_ANALYZER_LOCKFILE, "target/rust-analyzer/Cargo.lock");
     }
 
-    /// Metals' `.metals/` and the `.gradle/` of each Gradle build kotlin-lsp or
-    /// jdtls imports are made ignored before the server starts, where missing:
+    /// Metals' `.metals/`, `.bloop/` and `.bsp/`, the `project/.bloop/` of an
+    /// sbt build's definition, and the `.gradle/` of each Gradle build
+    /// kotlin-lsp or jdtls imports are made ignored before the server starts,
+    /// where missing:
     /// of a Kotlin build for kotlin-lsp, of a Java one for jdtls, at the root
     /// of a multi-project build, and none for a Maven build. One the user's
     /// own server made is left as it is.
@@ -1074,6 +1083,7 @@ mod tests {
         write("analytics/build.sbt");
         write("billing/build.sbt");
         write("billing/.metals/metals.mv.db");
+        write("mill/build.mill");
         write("reefer/build.gradle.kts");
         write("reefer/src/main/kotlin/SetPoint.kt");
         write("platform/settings.gradle");
@@ -1083,14 +1093,16 @@ mod tests {
         write("berths/src/main/java/Berth.java");
         let at = |rel: &str| root.path().join(rel);
 
-        ignore_state_dirs("scala", &[at("analytics"), at("billing")]);
-        for dir in [".metals", ".bloop", ".bsp"] {
+        ignore_state_dirs("scala", &[at("analytics"), at("billing"), at("mill")]);
+        for dir in [".metals", ".bloop", ".bsp", "project/.bloop"] {
             assert_eq!(
                 std::fs::read_to_string(at(&format!("analytics/{dir}/.gitignore"))).unwrap(),
                 "*\n"
             );
         }
         assert!(!at("billing/.metals/.gitignore").exists(), "the user's own");
+        assert!(at("mill/.bloop/.gitignore").is_file());
+        assert!(!at("mill/project").exists(), "not an sbt build");
 
         ignore_state_dirs("kotlin", &[root.path().to_path_buf()]);
         assert!(at("reefer/.gradle/.gitignore").is_file());

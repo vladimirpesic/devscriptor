@@ -279,7 +279,8 @@ And these keep a session going:
   workspace symbols nor semantic tokens. It imports an sbt build with `sbt`, which
   must be on `PATH`.
 - **Kept out of git:** before Metals starts, the `.metals/` it keeps its database
-  and log in and the `.bloop/` and `.bsp/` of the build it imports, and before
+  and log in, the `.bloop/` and `.bsp/` of the build it imports and, of an sbt
+  build, the `project/.bloop/` of its build definition, and before
   kotlin-lsp or jdtls imports a Gradle build, the `.gradle/` Gradle keeps its project
   cache in, are made with a `.gitignore` that ignores them, as ruby-lsp makes its
   `.ruby-lsp/`. One that exists is left as it is.
@@ -290,7 +291,10 @@ And these keep a session going:
 The other directories servers write are their build tool's own output —
 `target/` and `project/target/`, `obj/` (the .NET servers' restore), `.build/`
 (sourcekit-lsp's index build) — which a build of the project makes too; sbt also
-writes `project/build.properties` into a build that has none.
+writes `project/build.properties` into a build that has none. Metals, as in any
+editor, writes `project/metals.sbt` and `project/project/metals.sbt`, which add
+the sbt-bloop plugin its import runs; they are in the project's own `project/`,
+where only the project's `.gitignore` can leave them out of `git status`.
 
 ## Positions
 
