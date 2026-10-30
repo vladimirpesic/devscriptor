@@ -1,4 +1,593 @@
 {
-  "release": null,
-  "platforms": {}
+  "release": "lsp-servers-2026-10-30-07143fc",
+  "platforms": {
+    "linux-x86_64": {
+      "platform": "linux-x86_64",
+      "generated": "2026-10-30T14:32:53Z",
+      "servers": {
+        "bash-language-server": {
+          "filename": "bash-language-server-5.6.0-linux-x86_64.tar.gz",
+          "sha256": "10162e1d1f532c8ebe1b1b1d1c5114e0ffc2ac65fe2e31bbe23723b48474a126",
+          "size_bytes": 2391139,
+          "version": "5.6.0"
+        },
+        "clangd": {
+          "filename": "clangd-23.1.0-linux-x86_64.tar.gz",
+          "sha256": "04737ba29853e2fad8d37d52a9195be850b2c23a400e1a1f9ba85cac62890686",
+          "size_bytes": 99411368,
+          "version": "23.1.0"
+        },
+        "csharp-ls": {
+          "filename": "csharp-ls-0.16.0-linux-x86_64.tar.gz",
+          "sha256": "3378f2fabdbdb19d3c31ee52d27f156ca199a1e565a830dec06ed2c0c7c00ae7",
+          "size_bytes": 71770626,
+          "version": "0.16.0"
+        },
+        "dart-ls": {
+          "filename": "dart-ls-3.12.2-linux-x86_64.tar.gz",
+          "sha256": "4f15aaa9cc5b977d493f49d0df238e1132a94ff4b720d4334f553cb72a734c33",
+          "size_bytes": 233322997,
+          "version": "3.12.2"
+        },
+        "fsautocomplete": {
+          "filename": "fsautocomplete-0.83.0-linux-x86_64.tar.gz",
+          "sha256": "d5ea187da6b679e701a27f246300fc48109db08ed06d0a319fb7e0621a6f3181",
+          "size_bytes": 244234179,
+          "version": "0.83.0"
+        },
+        "gopls": {
+          "filename": "gopls-0.24.0-linux-x86_64.tar.gz",
+          "sha256": "a755d16dc0a57403db5cc7847d0f13c02b7e67fc10a9816aeda8c5e380fa0f77",
+          "size_bytes": 22651819,
+          "version": "0.24.0"
+        },
+        "graphql-language-service": {
+          "filename": "graphql-language-service-3.5.0-linux-x86_64.tar.gz",
+          "sha256": "787bec460afe07c44b239b0e95223d62cb68f050734c8dc39273a388907de08f",
+          "size_bytes": 20911421,
+          "version": "3.5.0"
+        },
+        "html-languageserver": {
+          "filename": "html-languageserver-4.10.0-linux-x86_64.tar.gz",
+          "sha256": "d1e6286b2f12ec53a0e760f917b1fbe3ec24e0bc0ad69309beff2e867989beb4",
+          "size_bytes": 14134858,
+          "version": "4.10.0"
+        },
+        "jdtls": {
+          "filename": "jdtls-1.61.0-linux-x86_64.tar.gz",
+          "sha256": "eff4002bf9f572c68fecac98c3b5fe130acb3d991d5b1487bb08c6008645d049",
+          "size_bytes": 50992693,
+          "version": "1.61.0"
+        },
+        "metals": {
+          "filename": "metals-1.6.7-linux-x86_64.tar.gz",
+          "sha256": "92d5a24f034fc429bc7a02c442d5ae04aa5a34fd8cb94f2b659b24302c9b0cb0",
+          "size_bytes": 123794131,
+          "version": "1.6.7"
+        },
+        "nomicfoundation-solc": {
+          "filename": "nomicfoundation-solc-0.8.25-linux-x86_64.tar.gz",
+          "sha256": "48ceaf3037e5780215a9a55e0326fa2865736fa47517415a9b5d76180471d97d",
+          "size_bytes": 8900560,
+          "version": "0.8.25"
+        },
+        "phpactor": {
+          "filename": "phpactor-2026-10-30-linux-x86_64.tar.gz",
+          "sha256": "7d2454d7841af57985453c2b6e40191422162c54de8b9fa80b8eb04a7769485c",
+          "size_bytes": 4535621,
+          "version": "2026-10-30"
+        },
+        "pyright": {
+          "filename": "pyright-1.1.411-linux-x86_64.tar.gz",
+          "sha256": "ae6382ab9c46be976cfe7d52496da1eb3c65f2521d62970ca3aa603d4629b04c",
+          "size_bytes": 4019036,
+          "version": "1.1.411"
+        },
+        "ruby-lsp": {
+          "filename": "ruby-lsp-0.26.11-linux-x86_64.tar.gz",
+          "sha256": "e15ae4cf2f38276a73bfa6c588c3e014b6e074f18ae86210d909244a88579d32",
+          "size_bytes": 9018134,
+          "version": "0.26.11"
+        },
+        "rust-analyzer": {
+          "filename": "rust-analyzer-0.3.3097-linux-x86_64.tar.gz",
+          "sha256": "47508c6d9a752425ba3290924817f926333d4ef972d4048da15019576d54bd52",
+          "size_bytes": 15184384,
+          "version": "0.3.3097"
+        },
+        "sql-language-server": {
+          "filename": "sql-language-server-1.7.1-linux-x86_64.tar.gz",
+          "sha256": "056513264eb36cc0568298c98cb301ebc24700e2c6d9b4a8ed1d169017e1a407",
+          "size_bytes": 20786221,
+          "version": "1.7.1"
+        },
+        "svelte-language-server": {
+          "filename": "svelte-language-server-0.18.3-linux-x86_64.tar.gz",
+          "sha256": "f4ff62953fb36ee9544beb7c6bd09d8a8aabf47001f67c3b57def06c3d95b654",
+          "size_bytes": 10237090,
+          "version": "0.18.3"
+        },
+        "typescript-language-server": {
+          "filename": "typescript-language-server-5.3.0-linux-x86_64.tar.gz",
+          "sha256": "db401d645aae7efbb1efe17b4896dc7457c1f038d6d9718d24ce92c4d4e66ebe",
+          "size_bytes": 4930720,
+          "version": "5.3.0"
+        },
+        "volar": {
+          "filename": "volar-2.2.12-linux-x86_64.tar.gz",
+          "sha256": "2140e25e52057d4782036a1473221b28cb4fab4410cd2a060d46cfa5a5735e1c",
+          "size_bytes": 8911687,
+          "version": "2.2.12"
+        }
+      }
+    },
+    "linux-aarch64": {
+      "platform": "linux-aarch64",
+      "generated": "2026-10-30T14:32:54Z",
+      "servers": {
+        "bash-language-server": {
+          "filename": "bash-language-server-5.6.0-linux-aarch64.tar.gz",
+          "sha256": "5f6016a374641ac60e0e4911bcb77bf673a0c01dc287c4e4c8a9470db4877e21",
+          "size_bytes": 2392620,
+          "version": "5.6.0"
+        },
+        "csharp-ls": {
+          "filename": "csharp-ls-0.16.0-linux-aarch64.tar.gz",
+          "sha256": "05b5c45bf91181df1414fc0ab932f9adc40ccc49cdab856b1c51ed082e019a1a",
+          "size_bytes": 71719058,
+          "version": "0.16.0"
+        },
+        "dart-ls": {
+          "filename": "dart-ls-3.12.2-linux-aarch64.tar.gz",
+          "sha256": "f289c6b6ab2f5279474d5b16f0569e3a7ab6b1728f5b097f3e2bbe05a438f909",
+          "size_bytes": 230677749,
+          "version": "3.12.2"
+        },
+        "fsautocomplete": {
+          "filename": "fsautocomplete-0.83.0-linux-aarch64.tar.gz",
+          "sha256": "e644e128a0001c4f2cf4a51c008ccde3a5696ece6d94bc571c6c9cf75a441ada",
+          "size_bytes": 244233657,
+          "version": "0.83.0"
+        },
+        "gopls": {
+          "filename": "gopls-0.24.0-linux-aarch64.tar.gz",
+          "sha256": "2d6eed7c4842439dc7e06e73eeef9472fb9fa2d5e0f7343be41feee7771cf04e",
+          "size_bytes": 20617469,
+          "version": "0.24.0"
+        },
+        "graphql-language-service": {
+          "filename": "graphql-language-service-3.5.0-linux-aarch64.tar.gz",
+          "sha256": "9a360079b8f15453436447a312b7ef1e90cf5252d5eda72151db0f4064521b72",
+          "size_bytes": 20931112,
+          "version": "3.5.0"
+        },
+        "html-languageserver": {
+          "filename": "html-languageserver-4.10.0-linux-aarch64.tar.gz",
+          "sha256": "be0324b9fec2003589ee6624f8082d0f40e6ede1096a4368cd62b70fb8cf9813",
+          "size_bytes": 14123038,
+          "version": "4.10.0"
+        },
+        "jdtls": {
+          "filename": "jdtls-1.61.0-linux-aarch64.tar.gz",
+          "sha256": "bc7dd135a9d81c05485721df19ce59ebec97fa274c7e36053819e6a6b257f522",
+          "size_bytes": 50997121,
+          "version": "1.61.0"
+        },
+        "metals": {
+          "filename": "metals-1.6.7-linux-aarch64.tar.gz",
+          "sha256": "4c61c71e722e19511d31c23f4c1edecb5a3dd9f51d31e700cf8345d8a8bf27af",
+          "size_bytes": 123792454,
+          "version": "1.6.7"
+        },
+        "nomicfoundation-solc": {
+          "filename": "nomicfoundation-solc-0.8.25-linux-aarch64.tar.gz",
+          "sha256": "df99fec3a102f46a02a5aba4888e478105c84c03525c134abe43b56349e2bea4",
+          "size_bytes": 8884755,
+          "version": "0.8.25"
+        },
+        "phpactor": {
+          "filename": "phpactor-2026-10-30-linux-aarch64.tar.gz",
+          "sha256": "6f9b031df30bd12832d1e5c034d1a23ce9f8d47e4b17c9dbb85b85c36e29a3d3",
+          "size_bytes": 4535424,
+          "version": "2026-10-30"
+        },
+        "pyright": {
+          "filename": "pyright-1.1.411-linux-aarch64.tar.gz",
+          "sha256": "40c75b040bd18edf82fbcbcd0f1198584ffd7808659e0c9652db5ad4fe07011c",
+          "size_bytes": 4014141,
+          "version": "1.1.411"
+        },
+        "ruby-lsp": {
+          "filename": "ruby-lsp-0.26.11-linux-aarch64.tar.gz",
+          "sha256": "6025f8c844563e2a8c2194cd1a9c6b688d9705dd2e370c07095d0e7c750f3c65",
+          "size_bytes": 8811563,
+          "version": "0.26.11"
+        },
+        "rust-analyzer": {
+          "filename": "rust-analyzer-0.3.3097-linux-aarch64.tar.gz",
+          "sha256": "4a68dc88673b6a1a5e526c6d9885175014ac396f4516cbf46f5fc06ca7595309",
+          "size_bytes": 14567689,
+          "version": "0.3.3097"
+        },
+        "sql-language-server": {
+          "filename": "sql-language-server-1.7.1-linux-aarch64.tar.gz",
+          "sha256": "44a9dbeca2ba3fc77061cb76f20a897641ddd97689bd02031558581977bee371",
+          "size_bytes": 20753348,
+          "version": "1.7.1"
+        },
+        "svelte-language-server": {
+          "filename": "svelte-language-server-0.18.3-linux-aarch64.tar.gz",
+          "sha256": "73d54477cb8b2e1889d96fdd4f22f9adf583615241145551181ebf83fedf8f20",
+          "size_bytes": 10231856,
+          "version": "0.18.3"
+        },
+        "typescript-language-server": {
+          "filename": "typescript-language-server-5.3.0-linux-aarch64.tar.gz",
+          "sha256": "c21b3984efcf73a6e9558fc5853290a84a61f1773a1b6b1a6ee31d0c865ea334",
+          "size_bytes": 4928196,
+          "version": "5.3.0"
+        },
+        "volar": {
+          "filename": "volar-2.2.12-linux-aarch64.tar.gz",
+          "sha256": "a3c2dd76ef43124fd70d20b00c03d43bd5789952ef0ed034e673c20d60236ea9",
+          "size_bytes": 8901523,
+          "version": "2.2.12"
+        }
+      }
+    },
+    "macos-x86_64": {
+      "platform": "macos-x86_64",
+      "generated": "2026-10-30T14:35:50Z",
+      "servers": {
+        "bash-language-server": {
+          "filename": "bash-language-server-5.6.0-macos-x86_64.tar.gz",
+          "sha256": "b6dbe18c6c9d2d7feff74e2366cf06b818803646a519c39e1a1fb608e950c26d",
+          "size_bytes": 2375813,
+          "version": "5.6.0"
+        },
+        "clangd": {
+          "filename": "clangd-23.1.0-macos-x86_64.tar.gz",
+          "sha256": "e4e9754e0d6641757ec6899de69386beff56a86b4da8b209080117a20f533b35",
+          "size_bytes": 53118746,
+          "version": "23.1.0"
+        },
+        "csharp-ls": {
+          "filename": "csharp-ls-0.16.0-macos-x86_64.tar.gz",
+          "sha256": "ff3549b6d77c644ef5618c1ea71618ca10ad960b9f544ec2b313182dc3d5e450",
+          "size_bytes": 71629365,
+          "version": "0.16.0"
+        },
+        "dart-ls": {
+          "filename": "dart-ls-3.12.2-macos-x86_64.tar.gz",
+          "sha256": "273188b56f56fc76dbbb10032f660c335fbc398d69630506e765981e90648803",
+          "size_bytes": 217570472,
+          "version": "3.12.2"
+        },
+        "fsautocomplete": {
+          "filename": "fsautocomplete-0.83.0-macos-x86_64.tar.gz",
+          "sha256": "9e9bd7cf324c93e39369e06244f52c1045b8ca4e8fc49c595fc21e4c58fcde7e",
+          "size_bytes": 244174022,
+          "version": "0.83.0"
+        },
+        "gopls": {
+          "filename": "gopls-0.24.0-macos-x86_64.tar.gz",
+          "sha256": "ffacac1016ed0fc6a1355d5b5a716ac87b78475049c939af6a4e52acae622912",
+          "size_bytes": 23191967,
+          "version": "0.24.0"
+        },
+        "graphql-language-service": {
+          "filename": "graphql-language-service-3.5.0-macos-x86_64.tar.gz",
+          "sha256": "d5af7c3af46c7b116ce0eec595fe07e30fe6f2e133b915cba5fee546353d05db",
+          "size_bytes": 20714378,
+          "version": "3.5.0"
+        },
+        "html-languageserver": {
+          "filename": "html-languageserver-4.10.0-macos-x86_64.tar.gz",
+          "sha256": "428141693abf8964f95d6f14294c20b41fdbaf86c19bcd70d2036925a564510c",
+          "size_bytes": 14117521,
+          "version": "4.10.0"
+        },
+        "jdtls": {
+          "filename": "jdtls-1.61.0-macos-x86_64.tar.gz",
+          "sha256": "ce5c8381ee92ec68e72f5bc8c1edae9265ae92aa5e9b7d7fe5832b4c4f9290d2",
+          "size_bytes": 51043333,
+          "version": "1.61.0"
+        },
+        "metals": {
+          "filename": "metals-1.6.7-macos-x86_64.tar.gz",
+          "sha256": "6cc54de3df1bb72b858fb6dee2818a5ebde1fd42bd836ba8a8a2abaab286f514",
+          "size_bytes": 123925087,
+          "version": "1.6.7"
+        },
+        "nomicfoundation-solc": {
+          "filename": "nomicfoundation-solc-0.8.25-macos-x86_64.tar.gz",
+          "sha256": "649bdd5e22083671762b4e633beb0393c0475895ff401a742b8b022dbce70ec4",
+          "size_bytes": 8855730,
+          "version": "0.8.25"
+        },
+        "phpactor": {
+          "filename": "phpactor-2026-10-30-macos-x86_64.tar.gz",
+          "sha256": "db2f72b1541b43911f9962d20ef34ccf15b83a5616b2b5a52496f41aef8a60ae",
+          "size_bytes": 4537304,
+          "version": "2026-10-30"
+        },
+        "pyright": {
+          "filename": "pyright-1.1.411-macos-x86_64.tar.gz",
+          "sha256": "c2416f0b57f3b08bf5a199adf99fe10845a20bb42d6826b7499003848413f4f7",
+          "size_bytes": 3975996,
+          "version": "1.1.411"
+        },
+        "ruby-lsp": {
+          "filename": "ruby-lsp-0.26.11-macos-x86_64.tar.gz",
+          "sha256": "a0784cc71645fd84ba9ec175fa893f4af59d44608ac87b27012620008dbb2fb1",
+          "size_bytes": 5225645,
+          "version": "0.26.11"
+        },
+        "rust-analyzer": {
+          "filename": "rust-analyzer-0.3.3097-macos-x86_64.tar.gz",
+          "sha256": "9fd12da83012ec52449593205e62846bf970882250ad29ad8a0909c384ede212",
+          "size_bytes": 14894670,
+          "version": "0.3.3097"
+        },
+        "sql-language-server": {
+          "filename": "sql-language-server-1.7.1-macos-x86_64.tar.gz",
+          "sha256": "01e8cbe2174555eb20b6e69bdaff0352e8fdf08aca031a4dc4223734018026c9",
+          "size_bytes": 20784912,
+          "version": "1.7.1"
+        },
+        "svelte-language-server": {
+          "filename": "svelte-language-server-0.18.3-macos-x86_64.tar.gz",
+          "sha256": "329a7a2e2bde519c35f2e1ecdf76527d8c040a50f5337a1d0c83ad1e050e6042",
+          "size_bytes": 10225459,
+          "version": "0.18.3"
+        },
+        "typescript-language-server": {
+          "filename": "typescript-language-server-5.3.0-macos-x86_64.tar.gz",
+          "sha256": "3b980874fed0e99cae5fa5d069241f86622b3ea73e8a062ee989b562c781d4dd",
+          "size_bytes": 4918297,
+          "version": "5.3.0"
+        },
+        "volar": {
+          "filename": "volar-2.2.12-macos-x86_64.tar.gz",
+          "sha256": "5d583b87b10f67f7ad6edc3559e4bbe66a971f9396d80507d9295c6b10994077",
+          "size_bytes": 8897396,
+          "version": "2.2.12"
+        }
+      }
+    },
+    "macos-aarch64": {
+      "platform": "macos-aarch64",
+      "generated": "2026-10-30T14:33:11Z",
+      "servers": {
+        "bash-language-server": {
+          "filename": "bash-language-server-5.6.0-macos-aarch64.tar.gz",
+          "sha256": "20df44ada46cbd11d36834e21342db58fbf902322b6bd2d05da037bceaddfba4",
+          "size_bytes": 2375628,
+          "version": "5.6.0"
+        },
+        "clangd": {
+          "filename": "clangd-23.1.0-macos-aarch64.tar.gz",
+          "sha256": "00e2bc868aa4de2bcfc30026adc0ffff04476a4871a16abb134a26daae23d15a",
+          "size_bytes": 53118708,
+          "version": "23.1.0"
+        },
+        "csharp-ls": {
+          "filename": "csharp-ls-0.16.0-macos-aarch64.tar.gz",
+          "sha256": "1f0763a3e2b469b8e09e327dd3976fd33a570f7db69334a483592973144287a6",
+          "size_bytes": 71628560,
+          "version": "0.16.0"
+        },
+        "dart-ls": {
+          "filename": "dart-ls-3.12.2-macos-aarch64.tar.gz",
+          "sha256": "a5684497c4641fd5592249857b091a798ea49ce47e2fbe98e9259d32174b5683",
+          "size_bytes": 214861897,
+          "version": "3.12.2"
+        },
+        "fsautocomplete": {
+          "filename": "fsautocomplete-0.83.0-macos-aarch64.tar.gz",
+          "sha256": "b6eef6d51b0b76640f6fd7c96762d1841412615c0d71ba6fe467ccaf900fe375",
+          "size_bytes": 244173222,
+          "version": "0.83.0"
+        },
+        "gopls": {
+          "filename": "gopls-0.24.0-macos-aarch64.tar.gz",
+          "sha256": "cbafdf37d29c251e42a56961309202b38ec6b2d5c8c8702a7bc456dd70b051d6",
+          "size_bytes": 21645785,
+          "version": "0.24.0"
+        },
+        "graphql-language-service": {
+          "filename": "graphql-language-service-3.5.0-macos-aarch64.tar.gz",
+          "sha256": "8ad68cb43be9b5e1f7e3800abb26243fd695f19d232c24156609c10e58486c74",
+          "size_bytes": 20709522,
+          "version": "3.5.0"
+        },
+        "html-languageserver": {
+          "filename": "html-languageserver-4.10.0-macos-aarch64.tar.gz",
+          "sha256": "3b448478037b77406ee85fd84a4dcc4bba6de93a384408b6d0edd9475f53386d",
+          "size_bytes": 14114939,
+          "version": "4.10.0"
+        },
+        "jdtls": {
+          "filename": "jdtls-1.61.0-macos-aarch64.tar.gz",
+          "sha256": "8a37e9f3b59cb84e240e375457ee009e5ff20ef7160fd75615632f3eb07d42ad",
+          "size_bytes": 51043338,
+          "version": "1.61.0"
+        },
+        "metals": {
+          "filename": "metals-1.6.7-macos-aarch64.tar.gz",
+          "sha256": "1469053c678c23682c0e57118ca1ba359bfc84bfff79a656e227ab9019c13b1f",
+          "size_bytes": 123925159,
+          "version": "1.6.7"
+        },
+        "nomicfoundation-solc": {
+          "filename": "nomicfoundation-solc-0.8.25-macos-aarch64.tar.gz",
+          "sha256": "11ee566c283d9e7616de6c1470a081e5ff7de78421ebaaf08675732f64cdd756",
+          "size_bytes": 8845360,
+          "version": "0.8.25"
+        },
+        "phpactor": {
+          "filename": "phpactor-2026-10-30-macos-aarch64.tar.gz",
+          "sha256": "55f3341f5f4bf62982ed04be6cc7f397a59fc6b565e6caef8cff46a47331dd7e",
+          "size_bytes": 4537305,
+          "version": "2026-10-30"
+        },
+        "pyright": {
+          "filename": "pyright-1.1.411-macos-aarch64.tar.gz",
+          "sha256": "ef4375137a5411aac8baa205f8661cc5749653713c2282a3f149c6f27e1ddf47",
+          "size_bytes": 3971247,
+          "version": "1.1.411"
+        },
+        "ruby-lsp": {
+          "filename": "ruby-lsp-0.26.11-macos-aarch64.tar.gz",
+          "sha256": "6103197c6b155f2eaba21bce550000d161a04c785eca26440b627b7acf598f74",
+          "size_bytes": 5164520,
+          "version": "0.26.11"
+        },
+        "rust-analyzer": {
+          "filename": "rust-analyzer-0.3.3097-macos-aarch64.tar.gz",
+          "sha256": "6c5725db3faead2cb710ff916d7d617ece2cdb2c1dd58b67933bc38e0ea69c40",
+          "size_bytes": 14151885,
+          "version": "0.3.3097"
+        },
+        "sql-language-server": {
+          "filename": "sql-language-server-1.7.1-macos-aarch64.tar.gz",
+          "sha256": "b568ae30958714bce30dcaca704b751f79ac1d2eb2671e27a51988e47dba714d",
+          "size_bytes": 20678876,
+          "version": "1.7.1"
+        },
+        "svelte-language-server": {
+          "filename": "svelte-language-server-0.18.3-macos-aarch64.tar.gz",
+          "sha256": "ae3a34e2efcc71e418c08ba1205a47cfc3d7febc77ac071ccc0dd207984bcd6a",
+          "size_bytes": 10225293,
+          "version": "0.18.3"
+        },
+        "typescript-language-server": {
+          "filename": "typescript-language-server-5.3.0-macos-aarch64.tar.gz",
+          "sha256": "47481245b064b154d73ab39e9f5c917ed38d02b30abaed8ea9fc670872ea9786",
+          "size_bytes": 4918243,
+          "version": "5.3.0"
+        },
+        "volar": {
+          "filename": "volar-2.2.12-macos-aarch64.tar.gz",
+          "sha256": "229fb5820efcfd2aadc7482a7dc775190140c1f8652170b3abc11b13c55c615b",
+          "size_bytes": 8896681,
+          "version": "2.2.12"
+        }
+      }
+    },
+    "windows-x86_64": {
+      "platform": "windows-x86_64",
+      "generated": "2026-10-30T14:36:12Z",
+      "servers": {
+        "bash-language-server": {
+          "filename": "bash-language-server-5.6.0-windows-x86_64.zip",
+          "sha256": "4cac54d009a1b7bb9cb4657f399d56d2a4afb5d3fc6603b54c13953fd9f4cba3",
+          "size_bytes": 4085488,
+          "version": "5.6.0"
+        },
+        "clangd": {
+          "filename": "clangd-23.1.0-windows-x86_64.zip",
+          "sha256": "1501aa426bd81a48af8ac29b7e553f9e724c2cb6fd0c5d9c7b57da77e18d67ac",
+          "size_bytes": 23153032,
+          "version": "23.1.0"
+        },
+        "csharp-ls": {
+          "filename": "csharp-ls-0.16.0-windows-x86_64.zip",
+          "sha256": "ace4da6bb53799d53554739ddca09a072b98c4309a805c842ddda0034e9f81a5",
+          "size_bytes": 72783681,
+          "version": "0.16.0"
+        },
+        "dart-ls": {
+          "filename": "dart-ls-3.12.2-windows-x86_64.zip",
+          "sha256": "df8aae2689414e4ee4fb25e2a5953543169f074f209c48c21ba6a3f63057bb0c",
+          "size_bytes": 218746964,
+          "version": "3.12.2"
+        },
+        "fsautocomplete": {
+          "filename": "fsautocomplete-0.83.0-windows-x86_64.zip",
+          "sha256": "79221b0a60eaaac40c8e3a27667b4ad278d71ac08aace7670d106d560fba6c3e",
+          "size_bytes": 246541614,
+          "version": "0.83.0"
+        },
+        "gopls": {
+          "filename": "gopls-0.24.0-windows-x86_64.zip",
+          "sha256": "c84a2f670ce63d9b304a60e9fdb69643fc4cdafc6597d545cbb7867201e73eb1",
+          "size_bytes": 23087735,
+          "version": "0.24.0"
+        },
+        "graphql-language-service": {
+          "filename": "graphql-language-service-3.5.0-windows-x86_64.zip",
+          "sha256": "06f7ef69048b524c0dfd8b9ed0fa44e3c989e4b06074ba62e85c4cdb013bc104",
+          "size_bytes": 26416759,
+          "version": "3.5.0"
+        },
+        "html-languageserver": {
+          "filename": "html-languageserver-4.10.0-windows-x86_64.zip",
+          "sha256": "2040ca7e33d221c80994df8db96b581f7b951268e23e21ed53351330ddb6ab51",
+          "size_bytes": 15810497,
+          "version": "4.10.0"
+        },
+        "jdtls": {
+          "filename": "jdtls-1.61.0-windows-x86_64.zip",
+          "sha256": "95deffc2efc06d957dc8e91b0b6ff6a30716fde67535ce9f24460df43575fb0e",
+          "size_bytes": 51063500,
+          "version": "1.61.0"
+        },
+        "metals": {
+          "filename": "metals-1.6.7-windows-x86_64.zip",
+          "sha256": "600cec8e96f723cdefa9d9e63706a3992458bc93a8ad8172d032b7d22ec05d6d",
+          "size_bytes": 123935227,
+          "version": "1.6.7"
+        },
+        "nomicfoundation-solc": {
+          "filename": "nomicfoundation-solc-0.8.25-windows-x86_64.zip",
+          "sha256": "9e1e5072ef20117ba5d8690fb318ab61d708b371cf86a022a17202e019da1978",
+          "size_bytes": 10472230,
+          "version": "0.8.25"
+        },
+        "pyright": {
+          "filename": "pyright-1.1.411-windows-x86_64.zip",
+          "sha256": "95e68fbf6ea366769c43dd7064bc4da7183180cdeeaeadc929796b9a46c20b5e",
+          "size_bytes": 6105423,
+          "version": "1.1.411"
+        },
+        "ruby-lsp": {
+          "filename": "ruby-lsp-0.26.11-windows-x86_64.zip",
+          "sha256": "c93e2d4762429b75a103e2d4676bcf01e9a5d2b0bef8a28c8cabe63dff6b827f",
+          "size_bytes": 6020114,
+          "version": "0.26.11"
+        },
+        "rust-analyzer": {
+          "filename": "rust-analyzer-0.3.3097-windows-x86_64.zip",
+          "sha256": "590da3ff2545b3d15d471aefb53e89441f7e80a013faed264a8569f9131443bc",
+          "size_bytes": 14973388,
+          "version": "0.3.3097"
+        },
+        "sql-language-server": {
+          "filename": "sql-language-server-1.7.1-windows-x86_64.zip",
+          "sha256": "7edd27f214a4a4278a31d577b141d699cc449da17a6eb8f9f237ead65e5594ea",
+          "size_bytes": 25341028,
+          "version": "1.7.1"
+        },
+        "svelte-language-server": {
+          "filename": "svelte-language-server-0.18.3-windows-x86_64.zip",
+          "sha256": "44fa169e08b8bc735ccbc0820ae8dd8c45efcbfb6f02c9ff1b664bc2c08f53c1",
+          "size_bytes": 11327961,
+          "version": "0.18.3"
+        },
+        "typescript-language-server": {
+          "filename": "typescript-language-server-5.3.0-windows-x86_64.zip",
+          "sha256": "6a8f4040df62be9732c3b4bad06281282da55788eab6ba74fb4e3cf278417074",
+          "size_bytes": 5023339,
+          "version": "5.3.0"
+        },
+        "volar": {
+          "filename": "volar-2.2.12-windows-x86_64.zip",
+          "sha256": "0917981dca2fa264e69806cc781450b9227bad31b14e4a2e1707c996053639ab",
+          "size_bytes": 9939702,
+          "version": "2.2.12"
+        }
+      }
+    }
+  }
 }
