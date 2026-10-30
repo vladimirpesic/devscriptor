@@ -13,7 +13,7 @@ use devscriptor_core::utils::validation::PathValidationOptions;
 use devscriptor_lsp::lsp_architecture::prerequisites::{InstallDifficulty, get_install_difficulty};
 use devscriptor_lsp::lsp_architecture::{
     DetectedLanguage, LspArchitectureManager, LspArchitectureResult, LspSource,
-    PrerequisitesResult, batch_check, check_prerequisites, quick_check,
+    PrerequisitesResult, batch_check, check_prerequisites, quick_check, server_id_for,
 };
 // `LspManager::install` downloads, verifies and installs a server.
 use devscriptor_lsp::{InstallationResult as LspInstallResult, LspManager};
@@ -42,6 +42,70 @@ impl LspCommand {
             manager,
             term: Term::stdout(),
         })
+    }
+
+    /// `lsp setup` of `targets`: each a project, whose languages' servers are
+    /// set up, or a server, by id or language, which is installed whether a
+    /// project calls for it or not. A name that is also a directory here is
+    /// the directory; none is the current one. Every target is tried, and the
+    /// command fails where one did.
+    pub async fn setup_targets(&mut self, targets: &[String], auto_install: bool) -> Result<()> {
+        let here = [".".to_string()];
+        let targets = if targets.is_empty() {
+            &here[..]
+        } else {
+            targets
+        };
+        let mut failed = Vec::new();
+        for target in targets {
+            let path = Path::new(target);
+            let result = if path.is_dir() {
+                self.setup(path, auto_install).await
+            } else if let Some(server_id) = server_id_for(target) {
+                self.install_named(server_id).await
+            } else {
+                Err(anyhow::anyhow!(
+                    "{target} is neither a directory nor a language server; the servers are {}",
+                    devscriptor_lsp::generated_registry::SERVER_IDS.join(", ")
+                ))
+            };
+            if let Err(e) = result {
+                if targets.len() == 1 {
+                    return Err(e);
+                }
+                self.term
+                    .write_line(&style(format!("{target}: {e:#}")).red().to_string())?;
+                failed.push(target.as_str());
+            }
+        }
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "{} of {} failed: {}",
+                failed.len(),
+                targets.len(),
+                failed.join(", ")
+            ))
+        }
+    }
+
+    /// Install `server_id`, named on the command line, as `lsp setup` installs
+    /// a project's: its prerequisites checked, into Devscriptor's own servers,
+    /// whatever else is on PATH. A server that comes with its toolchain
+    /// (sourcekit-lsp) is not installed: the toolchain's own is run.
+    async fn install_named(&mut self, server_id: &str) -> Result<()> {
+        self.print_header(&format!("📦 {server_id}"));
+        let comes_with_its_toolchain = devscriptor_lsp::manager::ServerRegistry::load()?
+            .get_server(server_id)
+            .is_some_and(|s| s.source.source_type == devscriptor_lsp::manager::SourceType::System);
+        if comes_with_its_toolchain {
+            self.term.write_line(&format!(
+                "  {server_id} comes with its toolchain, and the toolchain's own is run: it is not installed"
+            ))?;
+            return Ok(());
+        }
+        self.install_server(server_id).await
     }
 
     /// Run the setup workflow for a project
@@ -501,11 +565,12 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum LspCommands {
-    /// Set up LSP servers for a project
+    /// Set up the language servers of a project, or install servers by name
     Setup {
-        /// Path to the project
-        #[arg(default_value = ".")]
-        path: PathBuf,
+        /// Projects, whose languages' servers are set up, or servers to
+        /// install, by id (`bash-language-server`) or language (`bash`); a
+        /// name that is also a directory here is the directory [default: .]
+        targets: Vec<String>,
 
         /// Auto-install without prompting
         #[arg(short, long)]
@@ -559,7 +624,7 @@ pub async fn handle_lsp_command(command: LspCommands) -> Result<()> {
     let mut cmd = LspCommand::new()?;
 
     match command {
-        LspCommands::Setup { path, yes } => cmd.setup(&path, yes).await,
+        LspCommands::Setup { targets, yes } => cmd.setup_targets(&targets, yes).await,
         LspCommands::Detect { path } => cmd.detect(&path).await,
         LspCommands::Status => cmd.status(),
         LspCommands::Check { server_id } => cmd.check(&server_id),

@@ -629,7 +629,10 @@ devscriptor lsp <SUBCOMMAND>
 
 Subcommands: `setup`, `detect`, `status`, `check`, `batch-check`, `trust`, `untrust`.
 
-- `setup [PATH] [--yes]` — detect languages and install missing LSP servers.
+- `setup [TARGET]... [--yes]` — for a project (the default `.`), detect its languages and
+  install the missing servers; for a server, named by id (`bash-language-server`) or language
+  (`bash`), install it whether a project needs it or not. A name that is also a directory
+  here is the directory.
 - `detect [PATH]` — detect project languages and available servers without installing.
 - `status` — show all discovered LSP servers grouped by source.
 - `check <SERVER_ID>` — check whether a specific server is available.

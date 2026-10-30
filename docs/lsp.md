@@ -117,6 +117,12 @@ the platform:
   from the checksum file each publisher puts beside its downloads); the mirror's
   build of these three is taken only when it is that version.
 
+`devscriptor lsp setup <server>…` installs the servers named instead, by id
+(`bash-language-server`) or language (`bash`), whether a project needs them or
+not, as the MCP `lsp_arch_setup` does with `servers_to_install`; it installs one
+on PATH too, as Devscriptor's own, which then comes first. A name that is also a
+directory here is the directory.
+
 Devscriptor refuses an unverified download. sourcekit-lsp is never installed: it
 comes with the Swift toolchain. A server that fails to install keeps none of the
 others from installing, and `lsp setup` then exits with a non-zero status. The
@@ -360,6 +366,7 @@ by; a test checks that the two agree.
 
 ```bash
 devscriptor lsp setup [PATH] [--yes]      # detect the languages, install the missing servers
+devscriptor lsp setup <SERVER>...         # install servers by id or language
 devscriptor lsp detect [PATH]             # the languages and their servers, without installing
 devscriptor lsp status                    # every known server, grouped by where it resolves
 devscriptor lsp check <SERVER_ID>         # one server: where it resolves, or what it lacks

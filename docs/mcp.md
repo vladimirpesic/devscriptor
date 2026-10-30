@@ -696,13 +696,14 @@ on-demand installation system (see [Language servers](lsp.md)).
 | `lsp_arch_check` | `server_id`\* | Check whether a single server is available and where it resolves, or the `reason` it does not run here and what makes it run; `server_id` is a server id (`dart-ls`) or its language (`dart`), and a name that is neither comes back as `unknown`, with the server ids |
 | `lsp_arch_batch_check` | `server_ids`\* | Check availability of several servers at once, each by its id or its language, and each one that is not available with its `reason`; the names that are neither come back under `unknown`, with the server ids |
 | `lsp_arch_status` | *(none)* | Resolution status for all known servers, grouped by source; one installed here that cannot run is under `cannot_run`, apart from those to install, and each not available has its `reason` |
-| `lsp_arch_setup` | `project_path`, `auto_install`, `servers_to_install` | Detect a project's languages and (optionally) install the servers it needs |
+| `lsp_arch_setup` | `project_path`, `auto_install`, `servers_to_install` | Detect a project's languages and install the servers it needs (`auto_install`), or install the servers `servers_to_install` names, by id or language, whether the project needs them or not |
 
-`lsp_arch_setup` with `auto_install: true` downloads and installs language
-servers — gate it behind user approval in an agent.
+`lsp_arch_setup` with `auto_install: true`, or with `servers_to_install`, downloads
+and installs language servers — gate it behind user approval in an agent.
 
 ```json
-{ "project_path": "/path/to/project", "auto_install": true, "servers_to_install": ["rust-analyzer"] }
+{ "project_path": "/path/to/project", "auto_install": true }
+{ "servers_to_install": ["rust-analyzer", "bash"] }
 ```
 
 ## MCP Client Configuration

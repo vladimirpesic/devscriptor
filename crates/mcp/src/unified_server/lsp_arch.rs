@@ -65,7 +65,7 @@ pub(super) fn arch_tool_list() -> Vec<Tool> {
         ),
         Tool::new(
             "lsp_arch_setup",
-            "Detect a project's languages and (optionally) install the servers it needs",
+            "Detect a project's languages and install the servers it needs (`auto_install`), or install the servers `servers_to_install` names, by id or language, whether the project needs them or not",
             create_schema(json!({
                 "type": "object",
                 "properties": {
@@ -621,14 +621,41 @@ impl UnifiedMcpServer {
             )
         }; // lock dropped here
 
+        // The servers named are installed whether the project's languages call
+        // for them or not, each by its id or language (`bash`): naming them
+        // asks for them, `auto_install` or not. Without names, `auto_install`
+        // installs every server the project needs.
+        let mut named: Vec<&'static str> = Vec::new();
+        for name in &servers_to_install {
+            let Some(id) = devscriptor_lsp::lsp_architecture::server_id_for(name) else {
+                return Err(McpError::invalid_params(
+                    format!(
+                        "{name} is not a language server; the servers are {}",
+                        devscriptor_lsp::generated_registry::SERVER_IDS.join(", ")
+                    ),
+                    None,
+                ));
+            };
+            if !named.contains(&id) {
+                named.push(id);
+            }
+        }
+
         let mut installed: Vec<ServerInstallResult> = Vec::new();
         let mut still_needed: Vec<ServerNeedsInstall> = Vec::new();
-
+        for server_id in &named {
+            let install_result = self.install_server(server_id).await;
+            installed.push(ServerInstallResult {
+                server_id: (*server_id).to_string(),
+                success: install_result.is_ok(),
+                error: install_result.err().map(|e| e.to_string()),
+            });
+        }
         for (server_id, prereq_result) in &needs_install {
-            let should_install = auto_install
-                && (servers_to_install.is_empty() || servers_to_install.contains(server_id));
-
-            if should_install {
+            if named.contains(&server_id.as_str()) {
+                continue;
+            }
+            if auto_install && named.is_empty() {
                 let install_result = self.install_server(server_id).await;
                 installed.push(ServerInstallResult {
                     server_id: server_id.clone(),

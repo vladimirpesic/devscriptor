@@ -213,3 +213,41 @@ fn the_cli_says_why_a_server_does_not_run() {
     let status = lsp(&["status"]);
     assert!(status.contains(&format!("❌ jdtls {outdated}")), "{status}");
 }
+
+/// The servers `lsp_arch_setup` is given are installed whether the project
+/// needs them or not, each named by its id or language: rust-analyzer, for a
+/// project without Rust, stops at the rustup it needs, which PATH has not. A
+/// name that is no server is refused, naming the servers.
+#[test]
+fn the_servers_named_are_installed_whatever_the_project() {
+    let base = TempDir::new().unwrap();
+    let workspace = base.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut server = Server::start(base.path(), &workspace);
+
+    let setup = server.call(
+        "lsp_arch_setup",
+        json!({"project_path": workspace.to_string_lossy(), "servers_to_install": ["rust"]}),
+    );
+    let installed = setup["installed"].as_array().unwrap();
+    assert_eq!(installed.len(), 1, "{setup}");
+    assert_eq!(installed[0]["server_id"], "rust-analyzer");
+    assert_eq!(installed[0]["success"], false);
+    assert!(
+        installed[0]["error"].as_str().unwrap().contains("rustup"),
+        "{setup}"
+    );
+
+    let refused = server.request(
+        "tools/call",
+        json!({"name": "lsp_arch_setup", "arguments": {"servers_to_install": ["no-such-server"]}}),
+    );
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    let message = refused["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        message.contains("no-such-server is not a language server") && message.contains("gopls"),
+        "{refused}"
+    );
+}
