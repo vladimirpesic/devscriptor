@@ -252,17 +252,24 @@ And these keep a session going:
   `.settings/`) stays in its own workspace under `~/.cache/jdtls/`, and with
   `java.autobuild.enabled: false`, so it compiles nothing into the project's output
   folders; it answers from the sources.
+- **Metals** is configured with `autoImportBuilds: all`, so it imports a project's
+  build, and imports it again when it changes, rather than ask whether to: a client
+  with no user to ask can only decline, and Metals without a build answers neither
+  workspace symbols nor semantic tokens. It imports an sbt build with `sbt`, which
+  must be on `PATH`.
 - **Kept out of git:** before Metals starts, the `.metals/` it keeps its database
-  and log in, and before kotlin-lsp or jdtls imports a Gradle build, the `.gradle/`
-  Gradle keeps its project cache in, are made with a `.gitignore` that ignores them,
-  as ruby-lsp makes its `.ruby-lsp/`. One that exists is left as it is.
+  and log in and the `.bloop/` and `.bsp/` of the build it imports, and before
+  kotlin-lsp or jdtls imports a Gradle build, the `.gradle/` Gradle keeps its project
+  cache in, are made with a `.gitignore` that ignores them, as ruby-lsp makes its
+  `.ruby-lsp/`. One that exists is left as it is.
 - **kotlin-lsp** is started with `--system-path=<cache>/devscriptor/kotlin-lsp`, so
   its caches and indexes persist there rather than in a new temporary directory at
   every start.
 
 The other directories servers write are their build tool's own output —
-`target/`, `obj/` (the .NET servers' restore), `.build/` (sourcekit-lsp's index
-build) — which a build of the project makes too.
+`target/` and `project/target/`, `obj/` (the .NET servers' restore), `.build/`
+(sourcekit-lsp's index build) — which a build of the project makes too; sbt also
+writes `project/build.properties` into a build that has none.
 
 ## Positions
 

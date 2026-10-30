@@ -607,7 +607,7 @@ impl LspResolver {
             heuristics,
             initialization_options,
             settings,
-            configuration: None,
+            configuration: info.and_then(|i| i.configuration.clone()),
         }
     }
 

@@ -600,7 +600,9 @@ fn copy_cargo_locks(folders: &[PathBuf]) {
 
 /// The directories `language_id`'s server keeps its state in, inside the
 /// projects among `folders`, which no build of the project makes and no
-/// option moves elsewhere: Metals' `.metals/` (its database and log), and the
+/// option moves elsewhere: Metals' `.metals/` (its database and log), the
+/// `.bloop/` and `.bsp/` of the build it imports (Bloop's project files, and
+/// the build server's connection files), and the
 /// `.gradle/` Gradle keeps its project cache in at the root of each build
 /// kotlin-lsp or jdtls imports. Each is made before the server starts, when
 /// missing, with a `.gitignore` that ignores it, as ruby-lsp makes its
@@ -610,7 +612,7 @@ fn ignore_state_dirs(language_id: &str, folders: &[PathBuf]) {
     let dirs: Vec<PathBuf> = match language_id {
         "scala" => folders
             .iter()
-            .map(|folder| folder.join(".metals"))
+            .flat_map(|folder| [".metals", ".bloop", ".bsp"].map(|dir| folder.join(dir)))
             .collect(),
         "kotlin" => gradle_build_roots(folders, &["kt", "kts"])
             .into_iter()
@@ -829,6 +831,14 @@ async fn initialize_client(
 
     // Send initialized notification
     client.notify("initialized", serde_json::json!({})).await?;
+    if let Some(settings) = &config.configuration {
+        client
+            .notify(
+                "workspace/didChangeConfiguration",
+                serde_json::json!({ "settings": settings }),
+            )
+            .await?;
+    }
 
     client
         .set_state(crate::lsp::client::ServerState::Ready)
@@ -1051,10 +1061,12 @@ mod tests {
         let at = |rel: &str| root.path().join(rel);
 
         ignore_state_dirs("scala", &[at("analytics"), at("billing")]);
-        assert_eq!(
-            std::fs::read_to_string(at("analytics/.metals/.gitignore")).unwrap(),
-            "*\n"
-        );
+        for dir in [".metals", ".bloop", ".bsp"] {
+            assert_eq!(
+                std::fs::read_to_string(at(&format!("analytics/{dir}/.gitignore"))).unwrap(),
+                "*\n"
+            );
+        }
         assert!(!at("billing/.metals/.gitignore").exists(), "the user's own");
 
         ignore_state_dirs("kotlin", &[root.path().to_path_buf()]);

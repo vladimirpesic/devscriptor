@@ -534,6 +534,7 @@ impl LspClient {
         let pushed_task = Arc::clone(&pushed);
         let mut notification_rx = notification_rx;
         let responder = command_tx.clone();
+        let configuration = config.configuration.clone();
         tokio::spawn(async move {
             while let Some(message) = notification_rx.recv().await {
                 match message {
@@ -551,7 +552,7 @@ impl LspClient {
                         // `csharp-ls` sends `client/registerCapability` right after
                         // initialize and waits: with no reply it never loads the
                         // project, so every subsequent request timed out.
-                        let result = Self::answer_server_request(&request);
+                        let result = Self::answer_server_request(&request, configuration.as_ref());
                         let _ = responder
                             .send(ClientCommand::SendResponse {
                                 id: request.id.clone(),
@@ -602,20 +603,38 @@ impl LspClient {
     /// Build a reply for a request the server sent us.
     ///
     /// The LSP spec has servers ask the client to register capabilities, create
-    /// progress tokens, or fetch configuration. Devscriptor is a headless client
-    /// with nothing to configure, so an empty-but-valid answer is correct — and
-    /// far better than silence, which leaves the server waiting forever.
-    fn answer_server_request(request: &RequestMessage) -> Value {
+    /// progress tokens, or fetch configuration. A request for configuration
+    /// gets the server's `configuration` (see [`LspServerConfig`]), section by
+    /// section; anything else an empty-but-valid answer, which is far better
+    /// than silence, which leaves the server waiting forever.
+    fn answer_server_request(request: &RequestMessage, configuration: Option<&Value>) -> Value {
         match request.method.as_str() {
-            // The client is asked for one settings object per requested item.
+            // One settings object per requested item: the item's `section`
+            // (`metals`, or a dotted `metals.autoImportBuilds`), all of them
+            // where it names none, and null where they hold no such section.
             "workspace/configuration" => {
-                let n = request
+                let items = request
                     .params
                     .as_ref()
                     .and_then(|p| p.get("items"))
-                    .and_then(Value::as_array)
-                    .map_or(0, Vec::len);
-                Value::Array(vec![Value::Null; n])
+                    .and_then(Value::as_array);
+                Value::Array(
+                    items
+                        .into_iter()
+                        .flatten()
+                        .map(|item| {
+                            let section = item.get("section").and_then(Value::as_str);
+                            configuration
+                                .and_then(|c| {
+                                    section.map_or(Some(c), |s| {
+                                        s.split('.').try_fold(c, |node, key| node.get(key))
+                                    })
+                                })
+                                .cloned()
+                                .unwrap_or(Value::Null)
+                        })
+                        .collect(),
+                )
             }
             // Everything else — registerCapability, unregisterCapability,
             // workDoneProgress/create, semanticTokens/refresh, … — takes a null
@@ -1045,7 +1064,7 @@ mod tests {
             method: "client/registerCapability".into(),
             params: Some(serde_json::json!({"registrations": []})),
         };
-        assert_eq!(LspClient::answer_server_request(&req), Value::Null);
+        assert_eq!(LspClient::answer_server_request(&req, None), Value::Null);
     }
 
     /// `workspace/configuration` must return one settings entry per requested item,
@@ -1059,8 +1078,36 @@ mod tests {
             params: Some(serde_json::json!({"items": [{"section": "a"}, {"section": "b"}]})),
         };
         assert_eq!(
-            LspClient::answer_server_request(&req),
+            LspClient::answer_server_request(&req, None),
             Value::Array(vec![Value::Null, Value::Null])
+        );
+    }
+
+    /// A server's configuration is given section by section, a dotted section
+    /// reaching into it, all of it for an item with none, and null for a
+    /// section it does not hold.
+    #[test]
+    fn workspace_configuration_gives_the_servers_settings() {
+        let configuration = serde_json::json!({"metals": {"autoImportBuilds": "all"}});
+        let req = RequestMessage {
+            jsonrpc: JSONRPC_VERSION.into(),
+            id: RequestId::Number(4),
+            method: "workspace/configuration".into(),
+            params: Some(serde_json::json!({"items": [
+                {"section": "metals"},
+                {"section": "metals.autoImportBuilds"},
+                {"section": "other"},
+                {"scopeUri": "file:///p"},
+            ]})),
+        };
+        assert_eq!(
+            LspClient::answer_server_request(&req, Some(&configuration)),
+            serde_json::json!([
+                {"autoImportBuilds": "all"},
+                "all",
+                null,
+                {"metals": {"autoImportBuilds": "all"}},
+            ])
         );
     }
 
@@ -1072,7 +1119,10 @@ mod tests {
             method: "workspace/configuration".into(),
             params: None,
         };
-        assert_eq!(LspClient::answer_server_request(&req), Value::Array(vec![]));
+        assert_eq!(
+            LspClient::answer_server_request(&req, None),
+            Value::Array(vec![])
+        );
     }
 
     #[test]

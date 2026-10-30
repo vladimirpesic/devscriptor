@@ -161,8 +161,11 @@ them, and a .NET tool is told where `dotnet` is.
   network. Coursier's default thin launcher would fetch the libraries into its
   cache at the first start; `devscriptor lsp setup metals` and the download
   scripts replace a thin launcher they find.
-- **Needs:** **Java**. Metals still fetches what a project's build needs, as the
-  build would: the presentation compiler for another Scala version, Bloop, sbt.
+- **Needs:** **Java**, and the project's build tool on `PATH` (`sbt` for an sbt
+  build) to import the build, which Metals does without asking. Without it, Metals
+  answers hover, definitions and references, but not workspace symbols or semantic
+  tokens. Metals still fetches what a project's build needs, as the build would:
+  the presentation compiler for another Scala version, Bloop.
 
 ## PHP and Ruby
 

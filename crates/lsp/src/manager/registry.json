@@ -537,6 +537,11 @@
         "max_depth": 3
       },
       "args": [],
+      "configuration": {
+        "metals": {
+          "autoImportBuilds": "all"
+        }
+      },
       "timeout_seconds": 180
     },
     "csharp-ls": {

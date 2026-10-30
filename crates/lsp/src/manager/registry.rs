@@ -99,6 +99,16 @@ pub struct ServerInfo {
     #[serde(default)]
     pub env: HashMap<String, String>,
 
+    /// Settings the server takes from its client, sent in
+    /// `workspace/didChangeConfiguration` once it is initialized and given,
+    /// section by section, to its `workspace/configuration` requests.
+    ///
+    /// Metals asks whether to import a build, a question a client without a
+    /// user can only decline; with `autoImportBuilds` it imports the build
+    /// without asking.
+    #[serde(default)]
+    pub configuration: Option<serde_json::Value>,
+
     /// LSP `initializationOptions` the server requires.
     ///
     /// `typescript-language-server` and `volar` both refuse to initialize unless
