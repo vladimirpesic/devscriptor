@@ -1,0 +1,18 @@
+{
+  "file": "test_c.c",
+  "language": "c",
+  "min_functions": 9,
+  "min_classes": 0,
+  "min_enums": 0,
+  "min_interfaces": 0,
+  "min_type_aliases": 3,
+  "min_total_entities": 17,
+  "observed": {
+    "functions": 11,
+    "classes": 0,
+    "enums": 0,
+    "interfaces": 0,
+    "type_aliases": 4,
+    "total": 21
+  }
+}

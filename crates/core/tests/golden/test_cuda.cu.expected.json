@@ -1,0 +1,18 @@
+{
+  "file": "test_cuda.cu",
+  "language": "cuda",
+  "min_functions": 38,
+  "min_classes": 3,
+  "min_enums": 0,
+  "min_interfaces": 0,
+  "min_type_aliases": 0,
+  "min_total_entities": 45,
+  "observed": {
+    "functions": 45,
+    "classes": 4,
+    "enums": 0,
+    "interfaces": 0,
+    "type_aliases": 0,
+    "total": 53
+  }
+}

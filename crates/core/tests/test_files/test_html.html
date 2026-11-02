@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test HTML Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        h2 { color: #666; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .btn:hover { background: #0056b3; }
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th { background: #f8f9fa; }
+        .form-group { margin: 15px 0; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, textarea, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Comprehensive HTML Test Page</h1>
+        
+        <!-- Navigation -->
+        <nav>
+            <a href="#section1">Section 1</a> |
+            <a href="#section2">Section 2</a> |
+            <a href="#forms">Forms</a> |
+            <a href="#tables">Tables</a>
+        </nav>
+        
+        <section id="section1">
+            <h2>Text Elements</h2>
+            <p>This is a paragraph with <strong>bold</strong>, <em>italic</em>, and <u>underline</u> text.</p>
+            <p>This is a <code>code snippet</code> within a paragraph.</p>
+            
+            <blockquote>
+                This is a blockquote that spans multiple lines and is typically used for quoted text.
+            </blockquote>
+            
+            <h3>Lists</h3>
+            <h4>Unordered List</h4>
+            <ul>
+                <li>First item</li>
+                <li>Second item
+                    <ul>
+                        <li>Nested item 1</li>
+                        <li>Nested item 2</li>
+                    </ul>
+                </li>
+                <li>Third item</li>
+            </ul>
+            
+            <h4>Ordered List</h4>
+            <ol>
+                <li>First step</li>
+                <li>Second step</li>
+                <li>Third step</li>
+            </ol>
+            
+            <h4>Definition List</h4>
+            <dl>
+                <dt>HTML</dt>
+                <dd>HyperText Markup Language</dd>
+                <dt>CSS</dt>
+                <dd>Cascading Style Sheets</dd>
+            </dl>
+        </section>
+        
+        <section id="section2">
+            <h2>Media and Links</h2>
+            
+            <h3>Links</h3>
+            <a href="https://example.com" target="_blank" rel="noopener noreferrer">External Link</a><br>
+            <a href="#top">Back to Top</a>
+            
+            <h3>Images</h3>
+            <img src="https://via.placeholder.com/300x200" alt="Placeholder image" width="300" height="200">
+            
+            <h3>Video (HTML5)</h3>
+            <video width="320" height="240" controls>
+                <source src="movie.mp4" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            
+            <h3>Audio (HTML5)</h3>
+            <audio controls>
+                <source src="audio.mp3" type="audio/mpeg">
+                Your browser does not support the audio element.
+            </audio>
+        </section>
+        
+        <section id="tables">
+            <h2>Tables</h2>
+            <table>
+                <caption>User Information</caption>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1</td>
+                        <td>John Doe</td>
+                        <td>john@example.com</td>
+                        <td>Admin</td>
+                    </tr>
+                    <tr>
+                        <td>2</td>
+                        <td>Jane Smith</td>
+                        <td>jane@example.com</td>
+                        <td>User</td>
+                    </tr>
+                    <tr>
+                        <td>3</td>
+                        <td>Bob Johnson</td>
+                        <td>bob@example.com</td>
+                        <td>User</td>
+                    </tr>
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="4">Total: 3 users</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </section>
+        
+        <section id="forms">
+            <h2>Forms</h2>
+            
+            <form action="/submit" method="POST" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="username">Username:</label>
+                    <input type="text" id="username" name="username" placeholder="Enter username" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="email">Email:</label>
+                    <input type="email" id="email" name="email" placeholder="Enter email" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="age">Age:</label>
+                    <input type="number" id="age" name="age" min="18" max="120">
+                </div>
+                
+                <div class="form-group">
+                    <label for="birthdate">Birth Date:</label>
+                    <input type="date" id="birthdate" name="birthdate">
+                </div>
+                
+                <div class="form-group">
+                    <label>Gender:</label>
+                    <input type="radio" id="male" name="gender" value="male">
+                    <label for="male">Male</label>
+                    <input type="radio" id="female" name="gender" value="female">
+                    <label for="female">Female</label>
+                </div>
+                
+                <div class="form-group">
+                    <label>Interests:</label>
+                    <input type="checkbox" id="coding" name="interests" value="coding">
+                    <label for="coding">Coding</label>
+                    <input type="checkbox" id="reading" name="interests" value="reading">
+                    <label for="reading">Reading</label>
+                    <input type="checkbox" id="music" name="interests" value="music">
+                    <label for="music">Music</label>
+                </div>
+                
+                <div class="form-group">
+                    <label for="country">Country:</label>
+                    <select id="country" name="country">
+                        <option value="">Select country</option>
+                        <option value="us">United States</option>
+                        <option value="uk">United Kingdom</option>
+                        <option value="ca">Canada</option>
+                        <option value="au">Australia</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="bio">Bio:</label>
+                    <textarea id="bio" name="bio" rows="4" placeholder="Tell us about yourself"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="avatar">Avatar:</label>
+                    <input type="file" id="avatar" name="avatar" accept="image/*">
+                </div>
+                
+                <div class="form-group">
+                    <input type="hidden" name="csrf_token" value="abc123">
+                </div>
+                
+                <div class="form-group">
+                    <button type="submit" class="btn">Submit</button>
+                    <button type="reset" class="btn">Reset</button>
+                </div>
+            </form>
+        </section>
+        
+        <section>
+            <h2>Semantic Elements</h2>
+            
+            <article>
+                <h3>Article Title</h3>
+                <p>This is an article element that can contain self-contained content.</p>
+            </article>
+            
+            <aside>
+                <h4>Related Information</h4>
+                <p>This is an aside element with content tangentially related to the main content.</p>
+            </aside>
+            
+            <figure>
+                <img src="https://via.placeholder.com/200" alt="Figure image">
+                <figcaption>Figure caption</figcaption>
+            </figure>
+            
+            <details>
+                <summary>Click to expand</summary>
+                <p>This is additional content that is hidden until expanded.</p>
+            </details>
+            
+            <dialog id="myDialog">
+                <p>This is a dialog element.</p>
+                <button onclick="document.getElementById('myDialog').close()">Close</button>
+            </dialog>
+            
+            <progress value="70" max="100">70%</progress>
+            <meter value="0.6" min="0" max="1" low="0.2" high="0.8" optimum="0.5">60%</meter>
+        </section>
+        
+        <section>
+            <h2>Inline Elements</h2>
+            <p>
+                <abbr title="HyperText Markup Language">HTML</abbr> is the standard markup language.
+                <mark>This text is highlighted.</mark>
+                <del>This text is deleted.</del>
+                <ins>This text is inserted.</ins>
+                <sub>Subscript</sub>
+                <sup>Superscript</sup>
+                <small>Small text</small>
+                <time datetime="2024-01-21">January 21, 2024</time>
+            </p>
+        </section>
+        
+        <section>
+            <h2>Interactive Elements</h2>
+            <button class="btn">Click Me</button>
+            <button class="btn" disabled>Disabled Button</button>
+        </section>
+        
+        <footer>
+            <p>&copy; 2024 Test Page. All rights reserved.</p>
+            <a href="#top">Back to top</a>
+        </footer>
+    </div>
+    
+    <script>
+        // Simple JavaScript for interaction
+        document.querySelector('form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            alert('Form submitted!');
+        });
+    </script>
+</body>
+</html>

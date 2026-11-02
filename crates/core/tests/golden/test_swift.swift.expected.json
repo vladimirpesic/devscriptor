@@ -1,0 +1,18 @@
+{
+  "file": "test_swift.swift",
+  "language": "swift",
+  "min_functions": 22,
+  "min_classes": 0,
+  "min_enums": 1,
+  "min_interfaces": 0,
+  "min_type_aliases": 0,
+  "min_total_entities": 39,
+  "observed": {
+    "functions": 26,
+    "classes": 0,
+    "enums": 2,
+    "interfaces": 1,
+    "type_aliases": 0,
+    "total": 46
+  }
+}

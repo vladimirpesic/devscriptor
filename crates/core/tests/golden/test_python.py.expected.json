@@ -1,0 +1,18 @@
+{
+  "file": "test_python.py",
+  "language": "python",
+  "min_functions": 36,
+  "min_classes": 11,
+  "min_enums": 0,
+  "min_interfaces": 0,
+  "min_type_aliases": 0,
+  "min_total_entities": 49,
+  "observed": {
+    "functions": 43,
+    "classes": 14,
+    "enums": 0,
+    "interfaces": 0,
+    "type_aliases": 0,
+    "total": 58
+  }
+}

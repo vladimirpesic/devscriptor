@@ -1,0 +1,72 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 02:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  slow-tests:
+    name: Slow tests and the VS Code extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      CARGO_BUILD_JOBS: 4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Where Devscriptor loads the model from on Linux, so the tests find the
+      # cached copy instead of downloading it.
+      - name: Cache the embedding model
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/devscriptor/models/jina-embeddings-v2-base-code
+          # The revision and the file list are pinned in model_fetch.rs.
+          key: jina-model-${{ hashFiles('crates/core/src/embeddings/model_fetch.rs') }}
+      - name: Download the embedding model
+        run: |
+          if [ ! -f ~/.cache/devscriptor/models/jina-embeddings-v2-base-code/onnx/model_quantized.onnx ]; then
+            bash scripts/download-embedding-model.sh
+          fi
+
+      - name: Slow tests (core)
+        run: cargo test -p devscriptor-core --features slow-tests --release --locked -- --nocapture
+        timeout-minutes: 60
+      - name: Slow tests (MCP server with the real model)
+        run: cargo test -p devscriptor-mcp --features slow-tests --release --locked -- --nocapture
+        timeout-minutes: 30
+
+      - name: Build the release binary
+        run: cargo build -p devscriptor-cli --release --locked
+      - name: Put the binary on PATH
+        run: |
+          mkdir -p ~/.local/bin
+          cp target/release/devscriptor ~/.local/bin/devscriptor
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+      - name: Install the extension's dependencies
+        run: npm ci
+        working-directory: vscode-extension
+      # Every extension test, in the VS Code it downloads, on a virtual display.
+      - name: Extension tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          DEVSCRIPTOR_BIN="$HOME/.local/bin/devscriptor" xvfb-run -a npm test
+        working-directory: vscode-extension
+        timeout-minutes: 15

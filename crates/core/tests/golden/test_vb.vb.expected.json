@@ -1,0 +1,18 @@
+{
+  "file": "test_vb.vb",
+  "language": "vb_net",
+  "min_functions": 39,
+  "min_classes": 5,
+  "min_enums": 0,
+  "min_interfaces": 3,
+  "min_type_aliases": 0,
+  "min_total_entities": 55,
+  "observed": {
+    "functions": 47,
+    "classes": 6,
+    "enums": 0,
+    "interfaces": 4,
+    "type_aliases": 0,
+    "total": 65
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "file": "test_typescript.ts",
+  "language": "typescript",
+  "min_functions": 50,
+  "min_classes": 10,
+  "min_enums": 2,
+  "min_interfaces": 5,
+  "min_type_aliases": 5,
+  "min_total_entities": 78,
+  "observed": {
+    "functions": 59,
+    "classes": 12,
+    "enums": 3,
+    "interfaces": 6,
+    "type_aliases": 7,
+    "total": 92
+  }
+}

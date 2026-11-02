@@ -1,0 +1,19 @@
+# =============================================================================
+# Cargo build & test configuration
+# =============================================================================
+#
+# Keeps `cargo build` and `cargo test` within a 4-core, 8 GB machine: the build
+# compiles 26 C grammars and the bundled SQLite, and the slow tests each load
+# the embedding model (~1.3 GB resident).
+# =============================================================================
+
+[env]
+# One test at a time within each test binary (the binaries run one after
+# another): two tests that load the model side by side would double its
+# memory, and several tests set process-wide environment variables.
+RUST_TEST_THREADS = "1"
+
+[build]
+# Two parallel compile jobs, which bounds peak memory during compilation;
+# `cargo build -j N` overrides it.
+jobs = 2

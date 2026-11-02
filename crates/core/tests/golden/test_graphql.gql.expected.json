@@ -1,0 +1,18 @@
+{
+  "file": "test_graphql.gql",
+  "language": "graphql",
+  "min_functions": 94,
+  "min_classes": 12,
+  "min_enums": 0,
+  "min_interfaces": 0,
+  "min_type_aliases": 0,
+  "min_total_entities": 116,
+  "observed": {
+    "functions": 111,
+    "classes": 15,
+    "enums": 1,
+    "interfaces": 0,
+    "type_aliases": 1,
+    "total": 137
+  }
+}

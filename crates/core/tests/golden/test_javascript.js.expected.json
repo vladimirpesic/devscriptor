@@ -1,0 +1,18 @@
+{
+  "file": "test_javascript.js",
+  "language": "javascript",
+  "min_functions": 35,
+  "min_classes": 5,
+  "min_enums": 0,
+  "min_interfaces": 0,
+  "min_type_aliases": 0,
+  "min_total_entities": 44,
+  "observed": {
+    "functions": 42,
+    "classes": 7,
+    "enums": 0,
+    "interfaces": 0,
+    "type_aliases": 0,
+    "total": 52
+  }
+}

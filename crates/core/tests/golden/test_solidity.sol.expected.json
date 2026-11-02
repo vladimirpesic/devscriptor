@@ -1,0 +1,18 @@
+{
+  "file": "test_solidity.sol",
+  "language": "solidity",
+  "min_functions": 66,
+  "min_classes": 7,
+  "min_enums": 1,
+  "min_interfaces": 2,
+  "min_type_aliases": 0,
+  "min_total_entities": 85,
+  "observed": {
+    "functions": 78,
+    "classes": 9,
+    "enums": 2,
+    "interfaces": 3,
+    "type_aliases": 0,
+    "total": 101
+  }
+}

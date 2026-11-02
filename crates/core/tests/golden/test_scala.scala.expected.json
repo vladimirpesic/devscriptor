@@ -1,0 +1,18 @@
+{
+  "file": "test_scala.scala",
+  "language": "scala",
+  "min_functions": 35,
+  "min_classes": 19,
+  "min_enums": 0,
+  "min_interfaces": 2,
+  "min_type_aliases": 0,
+  "min_total_entities": 70,
+  "observed": {
+    "functions": 42,
+    "classes": 23,
+    "enums": 0,
+    "interfaces": 3,
+    "type_aliases": 0,
+    "total": 83
+  }
+}

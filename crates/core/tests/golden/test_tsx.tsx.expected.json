@@ -1,0 +1,18 @@
+{
+  "file": "test_tsx.tsx",
+  "language": "tsx",
+  "min_functions": 11,
+  "min_classes": 0,
+  "min_enums": 0,
+  "min_interfaces": 11,
+  "min_type_aliases": 10,
+  "min_total_entities": 37,
+  "observed": {
+    "functions": 13,
+    "classes": 0,
+    "enums": 0,
+    "interfaces": 14,
+    "type_aliases": 12,
+    "total": 44
+  }
+}
