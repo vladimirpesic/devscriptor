@@ -35,7 +35,7 @@ one MCP server — without sending your code anywhere.
 
 Pre-built archives for Linux (x86_64, aarch64), macOS (Apple Silicon, Intel) and
 Windows (x86_64) are published with each [GitHub release](https://github.com/vladimirpesic/devscriptor/releases/latest), each
-holding the one `devscriptor` executable; see [Installation](docs/installation.md).
+holding the `devscriptor` executable and the `LICENSE`; see [Installation](docs/installation.md).
 
 Or build from source with Rust 1.95 or newer and a C compiler:
 
