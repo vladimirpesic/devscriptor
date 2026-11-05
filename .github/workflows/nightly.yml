@@ -17,7 +17,7 @@ jobs:
   slow-tests:
     name: Slow tests and the VS Code extension
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     env:
       CARGO_BUILD_JOBS: 4
     steps:
@@ -39,12 +39,15 @@ jobs:
             bash scripts/download-embedding-model.sh
           fi
 
+      # The tests run one at a time (.cargo/config.toml): about 55 and 25 minutes,
+      # with the release build inside each step, which takes longer when
+      # Cargo.lock changed and the build cache is cold.
       - name: Slow tests (core)
         run: cargo test -p devscriptor-core --features slow-tests --release --locked -- --nocapture
-        timeout-minutes: 60
+        timeout-minutes: 90
       - name: Slow tests (MCP server with the real model)
         run: cargo test -p devscriptor-mcp --features slow-tests --release --locked -- --nocapture
-        timeout-minutes: 30
+        timeout-minutes: 45
 
       - name: Build the release binary
         run: cargo build -p devscriptor-cli --release --locked
