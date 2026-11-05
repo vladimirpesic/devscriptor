@@ -311,10 +311,11 @@ impl Retriever {
         }
 
         // 2. Compute text + hash for each missing candidate.
+        let roots = crate::database::operations::indexed_roots(&self.pool).await?;
         let texts_and_ids: Vec<(EntityId, String, String)> = missing
             .iter()
             .map(|e| {
-                let text = entity_to_text(e);
+                let text = entity_to_text(e, &roots);
                 let hash = format!("{:016x}", xxhash_rust::xxh3::xxh3_64(text.as_bytes()));
                 (e.id(), text, hash)
             })

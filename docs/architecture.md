@@ -579,9 +579,10 @@ Available immediately after: FTS5 keyword search, entity/relationship queries, c
 
 3. chunks of min(max(batch_size, 16), ⌈n / (concurrency × 3)⌉) ids, buffer_unordered(concurrency):
      texts = db.get_entity_texts_for_ids(chunk)
-     embeddings = service.generate_embeddings_batch(texts)  // 768-dim each
-     db.upsert_embeddings_batch(items)       // into FLOAT[768] entity_vectors
-     db.store_embedding_cache(pairs)         // written for the scan/watch/MCP paths, not read here
+     cached = db.lookup_embedding_cache(XXH3 of each text)  // skipped with --force
+     embeddings = service.generate_embeddings_batch(misses)  // 768-dim each
+     db.upsert_embeddings_batch(hits + new)  // into FLOAT[768] entity_vectors
+     db.store_embedding_cache(new pairs)
 
 4. service.unload_model()   // frees ~1.3 GB immediately
 ```

@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
+use devscriptor_core::database::operations::deepest_root;
 use serde_json::{Value, json};
 use tracing::{debug, warn};
 
@@ -378,14 +379,6 @@ async fn disk_states(paths: Vec<String>) -> anyhow::Result<HashMap<String, DiskS
             .collect()
     })
     .await?)
-}
-
-/// The deepest of `roots` that contains `path`.
-fn deepest_root<'a>(roots: &'a [PathBuf], path: &Path) -> Option<&'a PathBuf> {
-    roots
-        .iter()
-        .filter(|root| path.starts_with(root) && path != root.as_path())
-        .max_by_key(|root| root.components().count())
 }
 
 /// Whether a scan of `root` would index `path`.

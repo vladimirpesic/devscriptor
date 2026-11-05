@@ -3,8 +3,10 @@
 //! This module provides functionality to generate embeddings for entities
 //! and store them in the vector database.
 
+use std::path::{Path, PathBuf};
+
 use crate::database::connection::ConnectionPool;
-use crate::database::vector;
+use crate::database::{operations, vector};
 use crate::embeddings::EmbeddingService;
 use crate::entities::Entity;
 use crate::error::{Error, Result};
@@ -64,13 +66,14 @@ pub async fn generate_and_store_embeddings(
         return Ok(0);
     }
 
+    let roots = operations::indexed_roots(pool).await?;
     let mut embedded_count = 0;
     let mut failures = Vec::new();
 
     // Process in batches to avoid memory issues
     for chunk in entities_to_embed.chunks(config.batch_size) {
         // Prepare texts for embedding generation
-        let texts: Vec<String> = chunk.iter().map(|e| entity_to_text(e)).collect();
+        let texts: Vec<String> = chunk.iter().map(|e| entity_to_text(e, &roots)).collect();
 
         // Generate embeddings
         let embeddings = tokio::task::spawn_blocking({
@@ -133,12 +136,31 @@ fn truncate_for_embedding(text: String) -> String {
     text[..end].to_string()
 }
 
+/// `path` relative to the deepest of `roots` that contains it, its parts
+/// joined by `/`; `path` itself when no root contains it.
+fn path_from_root(path: &str, roots: &[PathBuf]) -> String {
+    let file = Path::new(path);
+    match operations::deepest_root(roots, file).and_then(|root| file.strip_prefix(root).ok()) {
+        Some(relative) => relative
+            .iter()
+            .map(|part| part.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/"),
+        None => path.to_string(),
+    }
+}
+
 /// Convert an entity to text for embedding generation.
+///
+/// `roots` are the directories scanned into the index
+/// ([`Database::indexed_roots`](crate::database::Database::indexed_roots));
+/// a Markdown section names its file relative to the deepest one that contains
+/// it.
 ///
 /// The returned text is truncated to [`MAX_EMBED_TEXT_CHARS`] so that batched
 /// ONNX inference has a bounded, predictable memory footprint regardless of how
 /// large individual code bodies are.
-pub fn entity_to_text(entity: &Entity) -> String {
+pub fn entity_to_text(entity: &Entity, roots: &[PathBuf]) -> String {
     let text = match entity {
         Entity::Function(f) => {
             let mut text = format!("function {}\n", f.name);
@@ -283,9 +305,15 @@ pub fn entity_to_text(entity: &Entity) -> String {
         }
         // The heading is the question a reader would ask; the body is the
         // answer. Both go in, with the file so a section is anchored to the
-        // document it came from.
+        // document it came from. The file is named from its root, so the text,
+        // and the vector cached for it, stay the same wherever the project is
+        // checked out.
         Entity::Section(d) => {
-            let mut text = format!("section {} in {}\n", d.name, d.file_path);
+            let mut text = format!(
+                "section {} in {}\n",
+                d.name,
+                path_from_root(&d.file_path, roots)
+            );
             text.push_str(&d.body);
             text
         }
@@ -362,5 +390,52 @@ mod tests {
         ] {
             assert_eq!(split_identifier_tokens(name), tokens, "{name}");
         }
+    }
+
+    fn section(file_path: &str) -> Entity {
+        let now = time::OffsetDateTime::now_utc();
+        Entity::Section(crate::entities::Documentation {
+            id: uuid::Uuid::new_v4(),
+            name: "Install".to_string(),
+            file_path: file_path.to_string(),
+            body: "Run the installer.".to_string(),
+            location: crate::entities::SourceLocation::new(1, 0, 2, 0),
+            language: "markdown".to_string(),
+            doc_type: Some("section".to_string()),
+            associated_entity: None,
+            associated_entity_type: None,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    #[test]
+    fn a_section_names_its_file_from_the_deepest_root() {
+        let roots = [PathBuf::from("/work"), PathBuf::from("/work/app")];
+        assert_eq!(
+            entity_to_text(&section("/work/app/docs/guide.md"), &roots),
+            "section Install in docs/guide.md\nRun the installer."
+        );
+    }
+
+    #[test]
+    fn a_section_reads_the_same_wherever_its_project_is() {
+        let here = entity_to_text(
+            &section("/home/a/app/docs/guide.md"),
+            &[PathBuf::from("/home/a/app")],
+        );
+        let there = entity_to_text(
+            &section("/srv/b/app-copy/docs/guide.md"),
+            &[PathBuf::from("/srv/b/app-copy")],
+        );
+        assert_eq!(here, there);
+    }
+
+    #[test]
+    fn a_section_outside_every_root_keeps_its_path() {
+        assert_eq!(
+            entity_to_text(&section("/elsewhere/notes.md"), &[PathBuf::from("/work")]),
+            "section Install in /elsewhere/notes.md\nRun the installer."
+        );
     }
 }

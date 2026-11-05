@@ -1586,6 +1586,23 @@ pub async fn add_indexed_root(pool: &ConnectionPool, root: &Path) -> Result<()> 
     .map_err(|e| crate::error::Error::task_join("record an indexed root", e))?
 }
 
+/// The directories scanned into the index ([`add_indexed_root`]).
+pub async fn indexed_roots(pool: &ConnectionPool) -> Result<Vec<PathBuf>> {
+    let roots: Vec<String> = get_metadata(pool, "indexed_roots")
+        .await?
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
+    Ok(roots.into_iter().map(PathBuf::from).collect())
+}
+
+/// The deepest of `roots` that contains `path`.
+pub fn deepest_root<'a>(roots: &'a [PathBuf], path: &Path) -> Option<&'a PathBuf> {
+    roots
+        .iter()
+        .filter(|root| path.starts_with(root) && path != root.as_path())
+        .max_by_key(|root| root.components().count())
+}
+
 /// Upsert a scan_manifest row.
 pub async fn upsert_scan_manifest(
     pool: &ConnectionPool,

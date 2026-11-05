@@ -97,6 +97,9 @@ the same (`embed --force` re-embeds regardless). Each text gets a run of its own
 so a cached vector is exactly what a new run would compute. A re-scan of unchanged
 code serves every vector from the cache.
 
+A Markdown section's text names its file relative to the scanned root, so a project
+moved or checked out elsewhere finds its sections' vectors in the cache too.
+
 The cache and `entity_vectors` hold the vectors of one vector space, which the
 index records (`embedding_space`); an index of another space drops both when it is
 opened, so old and new vectors never mix.

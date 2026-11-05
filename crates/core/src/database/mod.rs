@@ -617,11 +617,7 @@ impl Database {
     /// # Errors
     /// Returns an error if the database operation fails.
     pub async fn indexed_roots(&self) -> Result<Vec<std::path::PathBuf>> {
-        let roots: Vec<String> = operations::get_metadata(&self.pool, "indexed_roots")
-            .await?
-            .and_then(|json| serde_json::from_str(&json).ok())
-            .unwrap_or_default();
-        Ok(roots.into_iter().map(std::path::PathBuf::from).collect())
+        operations::indexed_roots(&self.pool).await
     }
 
     /// Delete scan_manifest rows for removed files.
@@ -850,6 +846,7 @@ impl Database {
             return Ok(Vec::new());
         }
 
+        let roots = self.indexed_roots().await?;
         let pool = self.pool.clone();
         let id_strings: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
 
@@ -883,7 +880,7 @@ impl Database {
                     // Deserialise then convert to text via the canonical function.
                     match vector::data_to_entity(&entity_type, &data_json) {
                         Ok(entity) => {
-                            let text = embeddings::entity_to_text(&entity);
+                            let text = embeddings::entity_to_text(&entity, &roots);
                             result.push((entity_id, text));
                         }
                         // Silence here loses the entity from semantic search

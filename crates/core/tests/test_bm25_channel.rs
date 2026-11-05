@@ -112,7 +112,7 @@ async fn a_vectorless_entity_survives_fusion_with_an_active_dense_channel() {
         .iter()
         .find(|e| e.entity_type() == "function")
         .expect("a function was indexed");
-    let text = devscriptor_core::database::embeddings::entity_to_text(function);
+    let text = devscriptor_core::database::embeddings::entity_to_text(function, &[]);
     let vector = svc.generate_embedding(&text).expect("embed");
     db.upsert_embeddings_batch(&[(function.id(), vector)])
         .await

@@ -621,8 +621,9 @@ impl CodebasePipeline {
         // may hold their older entities: it learns so once the run is over.
         let mut reindexing = self.db.reindexing(files.clone());
         let before = self.definitions_before(root, &files).await?;
+        let roots = self.embedding_roots(root).await?;
         let ParseOutput { processed, stored } = self
-            .parse_and_insert(entries, reindex_root, hashes, &mut result)
+            .parse_and_insert(entries, reindex_root, &roots, hashes, &mut result)
             .await?;
 
         // ========== PHASE 2b: UPDATE MANIFEST & CLEANUP REMOVED FILES ==========
@@ -841,9 +842,10 @@ impl CodebasePipeline {
         // may hold their older entities: it learns so once the run is over.
         let mut reindexing = self.db.reindexing(files.clone());
         let before = self.definitions_before(root, &files).await?;
+        let roots = self.embedding_roots(root).await?;
 
         let ParseOutput { processed, stored } = self
-            .parse_and_insert(changed, Some(root), Some(&hashes), &mut result)
+            .parse_and_insert(changed, Some(root), &roots, Some(&hashes), &mut result)
             .await?;
         self.update_manifest(&processed, true).await?;
         self.remove_files(&removed).await?;
@@ -852,6 +854,17 @@ impl CodebasePipeline {
                 .await?;
         }
         Ok(result)
+    }
+
+    /// The roots a Markdown section's file is named from in its embedded text:
+    /// the index's scanned roots and `root`, which a scan records once it is
+    /// done.
+    async fn embedding_roots(&self, root: &Path) -> Result<Vec<PathBuf>> {
+        let mut roots = self.db.indexed_roots().await?;
+        if !roots.iter().any(|known| known == root) {
+            roots.push(root.to_path_buf());
+        }
+        Ok(roots)
     }
 
     /// Phase 2: parse `entries` in parallel (bounded) and store them in
@@ -863,11 +876,13 @@ impl CodebasePipeline {
     /// what the index held for its files (their own edges, vanished entities,
     /// vectors of changed bodies). `hashes` are the files' content hashes when
     /// already computed, for the manifest; otherwise the parsed content is
-    /// hashed.
+    /// hashed. `roots` name a Markdown section's file in its embedded text
+    /// ([`Self::embedding_roots`]).
     async fn parse_and_insert(
         &self,
         entries: Vec<FileEntry>,
         reindex_root: Option<&Path>,
+        roots: &[PathBuf],
         hashes: Option<&HashMap<PathBuf, String>>,
         result: &mut PipelineResult,
     ) -> Result<ParseOutput> {
@@ -1005,7 +1020,7 @@ impl CodebasePipeline {
                             // semantic vector. Skipped entities stay searchable
                             // via name/FTS (search falls back to keyword).
                             if crate::embeddings::should_embed(entity, embedding_selection) {
-                                embed_texts.push(entity_to_text(entity));
+                                embed_texts.push(entity_to_text(entity, roots));
                                 embed_ids.push(entity.id());
                             }
                         }
