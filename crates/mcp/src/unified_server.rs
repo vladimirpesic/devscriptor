@@ -452,9 +452,46 @@ fn all_tools() -> Vec<Tool> {
         .collect()
 }
 
-/// The `instructions` sent at initialization, counted from the tool lists
-/// themselves so they cannot drift from what `tools/list` serves.
+/// The `instructions` sent at initialization: what the server serves, counted
+/// from the tool lists themselves so they cannot drift from what `tools/list`
+/// serves, then where to start. A model reaches first for the tools it holds;
+/// a client that loads tools on demand, and passes these instructions on, is
+/// told which to load first.
 fn instructions() -> String {
+    format!("{}\n\n{}", inventory(), where_to_start())
+}
+
+/// How to begin: find code with the index before searching files by hand,
+/// follow it, check the index, and use the Context Graph. Every tool named here
+/// is one this build serves.
+fn where_to_start() -> String {
+    #[allow(unused_mut)]
+    let mut lines = vec![
+        "Find code with these tools before searching or reading files yourself:",
+        "- semantic_search for a question in words; search_functions or search_classes \
+         for a name; get_file_context for what a file holds. Each match gives its file \
+         and lines: read those, not whole directories.",
+        "- get_entity_details and get_relationships for what an entity is, what it calls \
+         and what calls it, with the lines of each call.",
+    ];
+    #[cfg(feature = "lsp")]
+    lines.push(
+        "- get_definition and get_references to follow a symbol through the language \
+         server; lsp_arch_detect first in a project, to start the servers it needs.",
+    );
+    lines.extend([
+        "- get_statistics says whether the workspace is indexed: with no entities, run \
+         scan_codebase first, or start_analysis for a large repository. The index then \
+         follows edits by itself.",
+        "- search_context recalls the notes earlier sessions recorded about the code; \
+         add_context_note records a decision, a constraint or a fixed bug for later ones.",
+        "If tools are loaded on demand, load these first.",
+    ]);
+    lines.join("\n")
+}
+
+/// What the server serves, by tool family.
+fn inventory() -> String {
     let core = crate::tool_schemas::CORE_TOOLS.len();
     #[allow(unused_mut)]
     let mut total = core;
@@ -603,4 +640,55 @@ pub async fn run_core_only_server() -> anyhow::Result<()> {
     tracing::info!("Starting Core-only MCP Server ({tool_count} tools)");
     let server = UnifiedMcpServer::new_default()?;
     serve_stdio(server).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The instructions open with the tool count a client can check a build
+    /// against, the same number `tools/list` serves.
+    #[test]
+    fn the_instructions_open_with_the_tool_count() {
+        let first = instructions()
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        assert_eq!(
+            first,
+            format!(
+                "Devscriptor Unified MCP Server - Complete {}-tool implementation:",
+                all_tools().len()
+            )
+        );
+    }
+
+    /// Every tool the instructions name is one this build serves, and they
+    /// name the search tools a model should start with.
+    #[test]
+    fn the_instructions_name_only_tools_this_build_serves() {
+        let text = instructions();
+        let served: Vec<String> = all_tools().iter().map(|t| t.name.to_string()).collect();
+        let named: Vec<&str> = text
+            .split(|c: char| !(c.is_ascii_lowercase() || c == '_'))
+            .filter(|word| word.contains('_') && !word.starts_with('_') && !word.ends_with('_'))
+            .collect();
+        assert!(!named.is_empty());
+        for name in named {
+            assert!(served.iter().any(|s| s == name), "{name} is not served");
+        }
+        for name in [
+            "semantic_search",
+            "search_functions",
+            "get_file_context",
+            "search_context",
+        ] {
+            assert!(text.contains(name), "{name}");
+        }
+        #[cfg(feature = "lsp")]
+        for name in ["get_definition", "get_references", "lsp_arch_detect"] {
+            assert!(text.contains(name), "{name}");
+        }
+    }
 }

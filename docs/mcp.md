@@ -711,6 +711,16 @@ and installs language servers — gate it behind user approval in an agent.
 Point your MCP client at a **75-tool** entry point (see
 [Getting all 75 tools](#getting-all-75-tools)).
 
+After the tool count, the server's `instructions`, which a client may pass to its
+model, say where to start: `semantic_search`, `search_functions` and
+`search_classes` to find code, `get_file_context` for a file, `get_entity_details`
+and `get_relationships` for an entity and its calls, `get_definition`,
+`get_references` and `lsp_arch_detect` for the language servers, `get_statistics`
+for the index's state, and `search_context` and `add_context_note` for the
+Context Graph. A client that loads tools on demand should load these first, or
+keep them loaded: a model reaches first for the tools it holds, and leaves a tool
+it must load first mostly unused.
+
 **Claude Desktop / Claude Code / Cline:**
 
 ```json

@@ -25,6 +25,7 @@ decision here is a change of design, not a fix.
   - [One Devscriptor process per workspace](#one-devscriptor-process-per-workspace)
   - [The VS Code extension is an MCP client](#the-vs-code-extension-is-an-mcp-client)
   - [One project configuration file, of settings that act](#one-project-configuration-file-of-settings-that-act)
+  - [The instructions say where to start](#the-instructions-say-where-to-start)
 - [Code patterns](#code-patterns)
 - [Deliberate choices that look like mistakes](#deliberate-choices-that-look-like-mistakes)
 - [Duplicate dependencies](#duplicate-dependencies)
@@ -400,6 +401,22 @@ embedding selection and the database pool. See [Configuration](configuration.md)
 repeated on every command line, and the shared per-workspace server, which takes no
 flags from later clients, could not be given them at all. A file whose fields might
 not act misleads its reader.
+
+### The instructions say where to start
+
+The `instructions` the server sends at `initialize`
+(`crates/mcp/src/unified_server.rs`) open with the tool count by family, the line
+a client checks a build against, and end with where to start: the tools that find
+code by meaning or name, a file's summary, an entity and its calls, a symbol's
+definition and references, the index's state, and the Context Graph's notes. Each
+tool named there is one the build serves, which a test checks, and the language
+server tools are named only in a build that has them.
+
+**Why:** 75 tools are too many for a model to hold at once, so clients announce
+them by name and load a definition on demand. A model reaches first for the tools
+it holds: with every tool behind a loading step it searches files with `grep` and
+reads them, though its prompt describes Devscriptor. Told which tools to start
+with, a client can keep those loaded, and a model can load them first.
 
 ## Code patterns
 
