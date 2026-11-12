@@ -6,10 +6,12 @@
 //!   `template apply` and `profile apply` write.
 //! - [`stack_detection`]: what a project is built with, and the configuration
 //!   that suits it (`template analyze`).
+//! - [`yaml`]: how both files' YAML is read and written.
 
 pub mod profiles;
 pub mod project;
 pub mod stack_detection;
+pub mod yaml;
 
 pub use profiles::{ConfigurationTemplates, TemplateConfig, TemplateError};
 pub use project::{

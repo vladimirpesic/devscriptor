@@ -396,6 +396,11 @@ embedding selection and the database pool. See [Configuration](configuration.md)
   (`crates/mcp/src/project.rs`); the pipelines the server keeps take the new scope
   between runs (`CodebasePipeline::set_scope`). A broken edit keeps the settings in
   force; only the pool size waits for a restart.
+- **YAML 1.2, in safe Rust.** The file and YAML templates are read with
+  `serde-saphyr`, a parser written in safe Rust (`crates/core/src/config/yaml.rs`).
+  Only `true` and `false` are booleans, so `yes` cannot pass for one; a section or
+  list left without a value keeps its default; an error is one line that names its
+  line and quotes it, as `doctor` and the MCP tools report it.
 
 **Why:** settings that live only in flags and environment variables have to be
 repeated on every command line, and the shared per-workspace server, which takes no

@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::yaml;
 use crate::embeddings::EmbeddingSelection;
 use crate::parser::cross_file::CrossFileMode;
 use crate::pipeline::PipelineConfig;
@@ -31,13 +32,25 @@ pub const PROJECT_CONFIG_FILE: &str = "devscriptor.yaml";
 #[serde(deny_unknown_fields)]
 pub struct ProjectConfig {
     /// Which files a scan takes in, and how their references resolve.
-    #[serde(default, skip_serializing_if = "ScanSettings::is_unset")]
+    #[serde(
+        default,
+        skip_serializing_if = "ScanSettings::is_unset",
+        deserialize_with = "yaml::or_default"
+    )]
     pub scan: ScanSettings,
     /// Which entities get a semantic vector.
-    #[serde(default, skip_serializing_if = "EmbeddingSettings::is_unset")]
+    #[serde(
+        default,
+        skip_serializing_if = "EmbeddingSettings::is_unset",
+        deserialize_with = "yaml::or_default"
+    )]
     pub embeddings: EmbeddingSettings,
     /// The database connection pool.
-    #[serde(default, skip_serializing_if = "DatabaseSettings::is_unset")]
+    #[serde(
+        default,
+        skip_serializing_if = "DatabaseSettings::is_unset",
+        deserialize_with = "yaml::or_default"
+    )]
     pub database: DatabaseSettings,
 }
 
@@ -46,11 +59,19 @@ pub struct ProjectConfig {
 #[serde(deny_unknown_fields)]
 pub struct ScanSettings {
     /// File extensions to index (`rs`, `py`); none: every supported language.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "yaml::or_default"
+    )]
     pub include: Vec<String>,
     /// Glob patterns of paths to leave out, relative to the scanned root; a
     /// bare name (`target`) matches at any depth.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "yaml::or_default"
+    )]
     pub exclude: Vec<String>,
     /// Files larger than this many megabytes are left out (default: 50).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -134,17 +155,15 @@ pub struct Findings {
 }
 
 impl ProjectConfig {
-    /// Parse the YAML text of a project configuration. An empty file is the
-    /// defaults.
+    /// Parse the YAML text of a project configuration. A file with nothing
+    /// in it is the defaults, and so is a section or list left without a
+    /// value.
     ///
     /// # Errors
     /// Returns what makes the text no project configuration: invalid YAML, a
     /// field the schema does not name, a value of the wrong kind.
     pub fn parse(text: &str) -> Result<Self, String> {
-        if text.trim().is_empty() {
-            return Ok(Self::default());
-        }
-        serde_yaml::from_str(text).map_err(|e| e.to_string())
+        yaml::parse(text).map(Option::unwrap_or_default)
     }
 
     /// Read the project configuration at `path`.
@@ -271,20 +290,20 @@ impl ProjectConfig {
     ///
     /// # Errors
     /// Returns an error if the settings cannot be serialized.
-    pub fn to_yaml(&self, comment: &str) -> Result<String, serde_yaml::Error> {
-        let mut yaml = String::new();
+    pub fn to_yaml(&self, comment: &str) -> Result<String, serde_saphyr::SerializeError> {
+        let mut text = String::new();
         for line in comment.lines() {
-            yaml.push_str("# ");
-            yaml.push_str(line);
-            yaml.push('\n');
+            text.push_str("# ");
+            text.push_str(line);
+            text.push('\n');
         }
         if *self == Self::default() {
             // `{}` rather than nothing: the file says it holds no setting.
-            yaml.push_str("{}\n");
+            text.push_str("{}\n");
         } else {
-            yaml.push_str(&serde_yaml::to_string(self)?);
+            text.push_str(&yaml::to_string(self)?);
         }
-        Ok(yaml)
+        Ok(text)
     }
 }
 
@@ -320,6 +339,22 @@ mod tests {
 
     #[test]
     fn an_empty_file_changes_nothing() {
+        for empty in [
+            "",
+            "# no settings\n",
+            "---\n",
+            "scan:\nembeddings: ~\ndatabase:\n",
+        ] {
+            assert_eq!(
+                ProjectConfig::parse(empty).unwrap(),
+                ProjectConfig::default()
+            );
+        }
+        let blank =
+            ProjectConfig::parse("scan:\n  include:\n  exclude: ~\n  max_file_size_mb: 3\n")
+                .unwrap();
+        assert!(blank.scan.include.is_empty() && blank.scan.exclude.is_empty());
+        assert_eq!(blank.scan.max_file_size_mb, Some(3));
         let config = ProjectConfig::parse("").unwrap();
         assert_eq!(config, ProjectConfig::default());
         let mut pipeline = PipelineConfig::default();
@@ -343,6 +378,22 @@ mod tests {
         }
         let error = ProjectConfig::parse("scan:\n  cross_file: sideways\n").unwrap_err();
         assert!(error.contains("unknown variant"), "{error}");
+    }
+
+    /// `use_gitignore` is `true` or `false`: YAML 1.1's `yes` and `off` are
+    /// no booleans, and the error quotes the line.
+    #[test]
+    fn only_true_and_false_are_booleans() {
+        let config = ProjectConfig::parse("scan:\n  use_gitignore: False\n").unwrap();
+        assert_eq!(config.scan.use_gitignore, Some(false));
+        for word in ["yes", "off"] {
+            let error =
+                ProjectConfig::parse(&format!("scan:\n  use_gitignore: {word}\n")).unwrap_err();
+            assert!(
+                error.ends_with(&format!("`use_gitignore: {word}`")),
+                "{error}"
+            );
+        }
     }
 
     #[test]

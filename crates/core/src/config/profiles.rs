@@ -14,38 +14,40 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::config::project::ProjectConfig;
+use crate::config::yaml;
 
 /// A configuration template: a project configuration, with what it is for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TemplateConfig {
     /// Template name
+    #[serde(deserialize_with = "yaml::or_default")]
     pub name: String,
     /// Template description
-    #[serde(default)]
+    #[serde(default, deserialize_with = "yaml::or_default")]
     pub description: String,
     /// Template category
-    #[serde(default)]
+    #[serde(default, deserialize_with = "yaml::or_default")]
     pub category: String,
     /// Template tags
-    #[serde(default)]
+    #[serde(default, deserialize_with = "yaml::or_default")]
     pub tags: Vec<String>,
     /// The project configuration the template applies.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "yaml::or_default")]
     pub config: ProjectConfig,
     /// Use cases for this template
-    #[serde(default)]
+    #[serde(default, deserialize_with = "yaml::or_default")]
     pub use_cases: Vec<String>,
 }
 
 impl TemplateConfig {
-    /// Parse a template file's text, YAML when `yaml`, else JSON.
+    /// Parse a template file's text, YAML when `is_yaml`, else JSON.
     ///
     /// # Errors
     /// Returns why the text is no template.
-    pub fn parse(text: &str, yaml: bool) -> Result<Self, String> {
-        if yaml {
-            serde_yaml::from_str(text).map_err(|e| e.to_string())
+    pub fn parse(text: &str, is_yaml: bool) -> Result<Self, String> {
+        if is_yaml {
+            yaml::parse(text)?.ok_or_else(|| "the template file is empty".to_string())
         } else {
             serde_json::from_str(text).map_err(|e| e.to_string())
         }
@@ -662,6 +664,21 @@ mod tests {
         let yaml = "name: y\nconfig:\n  scan:\n    include: [go]\n";
         let template = TemplateConfig::parse(yaml, true).unwrap();
         assert_eq!(template.config.scan.include, ["go"]);
+        let error = TemplateConfig::parse("name: y\ncategory: [a\n", true).unwrap_err();
+        assert!(error.contains("line 2"), "{error}");
+    }
+
+    /// A YAML template's field left without a value is its default; a
+    /// template file with nothing in it is no template.
+    #[test]
+    fn a_yaml_templates_blank_fields_are_their_defaults() {
+        let yaml = "name: blank\ndescription:\ntags:\nconfig:\n  scan:\nuse_cases: ~\n";
+        let template = TemplateConfig::parse(yaml, true).unwrap();
+        assert_eq!(template, TemplateConfig::new("blank", "", ""));
+        for empty in ["", "# nothing\n", "---\n"] {
+            let error = TemplateConfig::parse(empty, true).unwrap_err();
+            assert!(error.contains("empty"), "{empty:?}: {error}");
+        }
     }
 
     #[test]

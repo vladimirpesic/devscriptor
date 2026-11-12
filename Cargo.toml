@@ -133,7 +133,8 @@ notify = "8"
 # Serialization
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-serde_yaml = "0.9"
+# YAML in safe Rust, for devscriptor.yaml and templates.
+serde-saphyr = { version = "2.1", default-features = false, features = ["deserialize", "serialize"] }
 toml = "1"
 
 # CLI

@@ -42,6 +42,11 @@ database:
 Only settings that act belong in the file: a field it does not name is an error,
 so a typo is reported instead of passing for a setting.
 
+The file is YAML 1.2: only `true` and `false` are booleans, so `use_gitignore:
+yes` is an error, not a yes. A section or list left without a value keeps its
+default, and an empty file is all defaults. An error names its line and quotes
+it. Configuration templates in YAML are read by the same rules.
+
 **Who reads it.** `scan` and `watch` read the file in the directory they index;
 `mcp` and `serve` the one in their workspace; `embed` and the commands that query
 the index (`search`, `find-similar`, `search-function`, `search-class`,

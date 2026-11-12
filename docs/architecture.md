@@ -846,5 +846,6 @@ Both ends check the other:
 | Connection pool | r2d2 | 0.8 |
 | File discovery | ignore (ripgrep engine) | 0.4 |
 | MCP protocol | rmcp SDK | 3.9 |
+| Configuration files | YAML through serde-saphyr (safe Rust) | 2.1 |
 | Async runtime | Tokio | 1.x |
 | HTTP (model + LSP downloads) | reqwest, rustls + ring, bundled Mozilla roots | 0.13 |
