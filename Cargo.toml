@@ -73,10 +73,10 @@ tree-sitter-vb-dotnet = "0.1"
 tree-sitter-vue-next = "0.1"
 
 # Database
-rusqlite = { version = "0.40", features = ["bundled", "serde_json", "uuid", "time", "functions"] }
+rusqlite = { version = "0.41", features = ["bundled", "serde_json", "uuid", "time", "functions"] }
 sqlite-vec = "0.1"
 r2d2 = "0.8"
-r2d2_sqlite = "0.35"
+r2d2_sqlite = "0.36"
 
 # Embeddings — pure-Rust ONNX inference (tract) and the tokenizer: no C++
 # runtime, so the binary has no libonnxruntime/libstdc++/OpenSSL dependency and
@@ -125,7 +125,7 @@ futures = "0.3"
 
 # MCP Protocol. The tools are declared by hand (no `#[tool]` macros), so only
 # the server half is needed; devscriptor-mcp adds the stdio transport.
-rmcp = { version = "3.5", default-features = false, features = ["server"] }
+rmcp = { version = "3.9", default-features = false, features = ["server"] }
 
 # File watching
 notify = "8"

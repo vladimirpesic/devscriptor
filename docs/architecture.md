@@ -838,13 +838,13 @@ Both ends check the other:
 | --- | --- | --- |
 | Language | Rust (edition 2024) | 1.95+ |
 | Parsing | tree-sitter | 0.27 |
-| Database | SQLite, bundled by rusqlite 0.40 | 3.53 |
+| Database | SQLite, bundled by rusqlite 0.41 | 3.54 |
 | Vector search | sqlite-vec | 0.1.9 |
 | Full-text search | FTS5 | (SQLite built-in) |
 | Embeddings (runtime) | tract-onnx (pure Rust) | 0.23 |
 | Embeddings (test) | MockEmbeddingProvider | built-in |
 | Connection pool | r2d2 | 0.8 |
 | File discovery | ignore (ripgrep engine) | 0.4 |
-| MCP protocol | rmcp SDK | 3.5 |
+| MCP protocol | rmcp SDK | 3.9 |
 | Async runtime | Tokio | 1.x |
 | HTTP (model + LSP downloads) | reqwest, rustls + ring, bundled Mozilla roots | 0.13 |
