@@ -18,6 +18,14 @@
 //! be had (the watcher cannot be created, or the system's limits on watches or
 //! watcher instances are reached) it polls ([`WatchMode::Poll`]).
 //!
+//! A file a re-index read within seconds of its last write may be written
+//! again in the same second at the same size, which neither its manifest row
+//! nor a poll can tell apart from no write at all
+//! ([`settled`](crate::database::operations::settled)). The session re-indexes
+//! such files once more when that window has passed, so the graph ends up as
+//! the files are. [`WatchState::settle`] waits until the session has
+//! re-indexed every change it has seen.
+//!
 //! # Example
 //!
 //! ```no_run
@@ -43,12 +51,13 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use notify::{RecursiveMode, Watcher};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
+use crate::database::operations::RACY_WINDOW_MS;
 use crate::error::{Error, Result};
 use crate::parser::language_config::{extension_to_language, filename_to_language};
 use crate::pipeline::{CodebasePipeline, PipelineResult};
@@ -129,6 +138,10 @@ pub struct WatchState {
     /// The mode, and why it is [`WatchMode::Poll`] when it is.
     mode: parking_lot::Mutex<(WatchMode, Option<String>)>,
     watched_directories: AtomicUsize,
+    /// How many change signals the session has been sent.
+    received: AtomicU64,
+    /// How many of them it has re-indexed, or failed to.
+    handled: watch::Sender<u64>,
 }
 
 impl WatchState {
@@ -136,7 +149,37 @@ impl WatchState {
         Self {
             mode: parking_lot::Mutex::new((WatchMode::Events, None)),
             watched_directories: AtomicUsize::new(0),
+            received: AtomicU64::new(0),
+            handled: watch::Sender::new(0),
         }
+    }
+
+    /// Send `signal` to the session through `tx`, counted for
+    /// [`Self::settle`]: counted first, so that a wait that begins once it is
+    /// sent waits for it too.
+    fn send(&self, tx: &mpsc::UnboundedSender<Signal>, signal: Signal) {
+        self.received.fetch_add(1, Ordering::SeqCst);
+        // An error only means the session is gone: nothing will handle it.
+        if tx.send(signal).is_err() {
+            self.received.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Count `signals` as handled, re-indexed or not.
+    fn handled(&self, signals: u64) {
+        self.handled.send_modify(|handled| *handled += signals);
+    }
+
+    /// Wait at most `limit` until the session has re-indexed every change it
+    /// had been told of when the wait began; `true` once it has, `false` when
+    /// the limit passed first. The changes a poll has not found yet are not
+    /// waited for.
+    pub async fn settle(&self, limit: Duration) -> bool {
+        let target = self.received.load(Ordering::SeqCst);
+        let mut handled = self.handled.subscribe();
+        tokio::time::timeout(limit, handled.wait_for(|handled| *handled >= target))
+            .await
+            .is_ok_and(|waited| waited.is_ok())
     }
 
     fn poll(&self, reason: String) {
@@ -224,13 +267,17 @@ impl CodeWatcher {
 
         let backend = if self.config.force_poll {
             state.poll("polling was requested".to_string());
-            poll_backend(&self.root, &tx, &self.config)?
+            poll_backend(&self.root, &tx, &state, &self.config)?
         } else {
-            match notify::recommended_watcher(handler(self.root.clone(), tx.clone())) {
+            match notify::recommended_watcher(handler(
+                self.root.clone(),
+                tx.clone(),
+                Arc::clone(&state),
+            )) {
                 Ok(watcher) => Backend::Events(watcher),
                 Err(e) => {
                     state.poll(format!("native file events are unavailable: {e}"));
-                    poll_backend(&self.root, &tx, &self.config)?
+                    poll_backend(&self.root, &tx, &state, &self.config)?
                 }
             }
         };
@@ -282,6 +329,9 @@ enum Signal {
     },
     /// Events were lost or the watcher failed: only a full re-scan is safe.
     Rescan(String),
+    /// Files a re-index left unsettled, to be re-indexed again now that
+    /// [`RACY_WINDOW_MS`] has passed.
+    Recheck(Vec<PathBuf>),
 }
 
 /// The watcher behind a session.
@@ -303,10 +353,11 @@ impl Backend {
 fn poll_backend(
     root: &Path,
     tx: &mpsc::UnboundedSender<Signal>,
+    state: &Arc<WatchState>,
     config: &WatchConfig,
 ) -> Result<Backend> {
     notify::PollWatcher::new(
-        handler(root.to_path_buf(), tx.clone()),
+        handler(root.to_path_buf(), tx.clone(), Arc::clone(state)),
         notify::Config::default().with_poll_interval(config.poll_interval),
     )
     .map(Backend::Poll)
@@ -317,6 +368,7 @@ fn poll_backend(
 fn handler(
     root: PathBuf,
     tx: mpsc::UnboundedSender<Signal>,
+    state: Arc<WatchState>,
 ) -> impl FnMut(notify::Result<notify::Event>) + Send + 'static {
     move |event: notify::Result<notify::Event>| {
         let signal = match event {
@@ -329,9 +381,7 @@ fn handler(
                 None => return,
             },
         };
-        // Ignore send errors: they only happen once the receiver (the run
-        // loop) has been dropped, i.e. we're shutting down.
-        let _ = tx.send(signal);
+        state.send(&tx, signal);
     }
 }
 
@@ -395,13 +445,18 @@ fn is_limit_io(_error: &std::io::Error) -> bool {
 /// Signals gathered during one debounce window.
 #[derive(Default)]
 struct Batch {
+    /// How many signals it gathered.
+    signals: u64,
     paths: HashSet<PathBuf>,
     created_dirs: Vec<PathBuf>,
     rescan: Option<String>,
+    /// Files only checked again ([`Signal::Recheck`]), not reported changed.
+    rechecks: HashSet<PathBuf>,
 }
 
 impl Batch {
     fn add(&mut self, signal: Signal) {
+        self.signals += 1;
         match signal {
             Signal::Changed {
                 paths,
@@ -413,7 +468,14 @@ impl Batch {
             Signal::Rescan(reason) => {
                 self.rescan.get_or_insert(reason);
             }
+            Signal::Recheck(paths) => self.rechecks.extend(paths),
         }
+    }
+
+    /// Whether the batch only checks files again: a re-index that finds them
+    /// unchanged is not reported.
+    fn only_rechecks(&self) -> bool {
+        self.rescan.is_none() && self.paths.is_empty()
     }
 }
 
@@ -501,7 +563,7 @@ impl WatchSession {
     /// watched.
     fn fall_back_to_polling(&mut self, reason: String) -> Result<()> {
         tracing::warn!("Watching {} by polling: {reason}", self.root.display());
-        self.backend = poll_backend(&self.root, &self.tx, &self.config)?;
+        self.backend = poll_backend(&self.root, &self.tx, &self.state, &self.config)?;
         self.state.poll(reason);
         let watched: Vec<PathBuf> = self.watched.drain().collect();
         self.register(&watched)
@@ -546,40 +608,62 @@ impl WatchSession {
                 }
             }
 
+            let only_rechecks = batch.only_rechecks();
             let outcome = match batch.rescan {
                 Some(reason) => {
                     tracing::info!("Re-scanning {}: {reason}", self.root.display());
-                    self.pipeline.analyze_directory(&self.root).await
+                    Some(self.pipeline.analyze_directory(&self.root).await)
                 }
-                None if batch.paths.is_empty() => continue,
+                None if batch.paths.is_empty() && batch.rechecks.is_empty() => None,
                 None => {
-                    let paths: Vec<PathBuf> = batch.paths.into_iter().collect();
-                    self.pipeline.reindex_paths(&self.root, &paths).await
+                    let paths: Vec<PathBuf> = batch.paths.union(&batch.rechecks).cloned().collect();
+                    Some(self.pipeline.reindex_paths(&self.root, &paths).await)
                 }
             };
             match outcome {
-                Ok(result) => {
-                    tracing::info!(
-                        "🔄 Re-index: {} parsed, {} skipped, {} entities, {} relationships written ({:.2}s)",
-                        result.files_parsed,
-                        result.files_skipped,
-                        result.entity_count,
-                        result.relationship_count,
-                        result.processing_time_secs,
-                    );
-                    on_rescan(WatchRescan { result });
+                Some(Ok(result)) => {
+                    self.recheck_later(result.unsettled.clone());
+                    let found_nothing = result.files_parsed == 0 && result.files_removed == 0;
+                    if !(only_rechecks && found_nothing) {
+                        tracing::info!(
+                            "🔄 Re-index: {} parsed, {} skipped, {} entities, {} relationships written ({:.2}s)",
+                            result.files_parsed,
+                            result.files_skipped,
+                            result.entity_count,
+                            result.relationship_count,
+                            result.processing_time_secs,
+                        );
+                        on_rescan(WatchRescan { result });
+                    }
                 }
-                Err(e) => {
+                Some(Err(e)) => {
                     // A single failed re-index should not tear down the watcher;
                     // the next change will trigger another attempt.
                     tracing::error!("watch re-index failed: {e}");
                 }
+                None => {}
             }
+            self.state.handled(batch.signals);
             // Do NOT drain queued signals here: any change that landed during
             // the re-index must trigger the next iteration so nothing is
             // missed. Our own writes go only to the DB, which `changes`
             // filters out, so there is no self-retrigger.
         }
+    }
+
+    /// Re-index `files` once more [`RACY_WINDOW_MS`] from now, when their
+    /// rows can be settled: a write in the same second as the one a re-index
+    /// read, at the same size, is found then.
+    fn recheck_later(&self, files: Vec<PathBuf>) {
+        if files.is_empty() {
+            return;
+        }
+        let tx = self.tx.clone();
+        let state = Arc::clone(&self.state);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(RACY_WINDOW_MS)).await;
+            state.send(&tx, Signal::Recheck(files));
+        });
     }
 }
 

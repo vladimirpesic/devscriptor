@@ -303,3 +303,91 @@ async fn files_first_named_by_a_rerun_are_checked_too() {
     assert!(report.stale.is_empty(), "{report:?}");
     assert_eq!(reads, 3, "once for a.py, once more for b.py");
 }
+
+/// A file written again within the second of the version indexed, at the same
+/// size, looks unchanged by size and time: the check reads it, and re-indexes
+/// it when its content differs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rewrite_in_the_same_second_is_refreshed() {
+    let scanned = Scanned::new(&[("racy.py", "def alpha_v1():\n    return 1\n")]).await;
+    let file = scanned.file("racy.py");
+    let modified = std::fs::metadata(&file).unwrap().modified().unwrap();
+    std::fs::write(&file, "def alpha_v2():\n    return 1\n").expect("rewrite");
+    set_mtime(&file, modified);
+
+    let found = scanned
+        .call("search_functions", json!({"query": "alpha_v1"}))
+        .await;
+    assert_eq!(found["returned"], json!(0), "{found}");
+    assert_eq!(found["refreshed_files"], json!([file]), "{found}");
+    let found = scanned
+        .call("search_functions", json!({"query": "alpha_v2"}))
+        .await;
+    assert_eq!(found["returned"], json!(1), "{found}");
+}
+
+/// The analyses of the whole index answer from the files as they are: with
+/// nothing watched, a dead function whose file is gone is not reported.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dead_code_in_a_deleted_file_is_not_reported() {
+    let scanned = Scanned::new(&[
+        ("kept.py", "def kept_unused():\n    return 1\n"),
+        ("gone.py", "def gone_unused():\n    return 2\n"),
+    ])
+    .await;
+    std::fs::remove_file(scanned.file("gone.py")).expect("delete");
+
+    let dead = scanned
+        .call("find_dead_code", json!({"min_confidence": 0.0}))
+        .await;
+    let names: Vec<&str> = dead["unused_functions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| finding["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["kept_unused"], "{dead}");
+}
+
+/// With nothing watched, an analysis of the whole index scans the roots in
+/// its scope first: whether a function is dead depends on calls in files its
+/// findings do not name. A call edited away makes its target dead, and a new
+/// caller makes a function alive (`main` is an entry point, never dead).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dead_code_follows_calls_in_files_it_does_not_name() {
+    let scanned = Scanned::new(&[
+        (
+            "lib.py",
+            "def target():\n    return 1\n\n\ndef spare():\n    return 2\n",
+        ),
+        (
+            "app.py",
+            "from lib import target\n\n\ndef main():\n    return target()\n",
+        ),
+    ])
+    .await;
+    let dead = |answer: &Value| -> Vec<String> {
+        let mut names: Vec<String> = answer["unused_functions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|finding| finding["name"].as_str().unwrap().to_string())
+            .collect();
+        names.sort();
+        names
+    };
+    let before = scanned
+        .call("find_dead_code", json!({"min_confidence": 0.0}))
+        .await;
+    assert_eq!(dead(&before), ["spare"], "{before}");
+
+    std::fs::write(
+        scanned.file("app.py"),
+        "from lib import spare\n\n\ndef main():\n    return spare() + 1\n",
+    )
+    .expect("edit");
+    let after = scanned
+        .call("find_dead_code", json!({"min_confidence": 0.0}))
+        .await;
+    assert_eq!(dead(&after), ["target"], "{after}");
+}

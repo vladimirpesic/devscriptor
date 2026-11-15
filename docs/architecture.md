@@ -191,13 +191,20 @@ FileScanner::scan(root)
 ### Phase 1b — Incremental Filtering (when `incremental = true`)
 
 ```rust
-db.load_scan_manifest()          → HashMap<path, (hash, size, mtime)>
+read_at = now                    ← before any file is read
+db.load_scan_manifest()          → HashMap<path, (hash, size, mtime, read_at)>
 For each discovered file:
-  if size == manifest.size AND mtime == manifest.mtime → skip (fast path)
+  if size == manifest.size AND mtime == manifest.mtime
+     AND manifest.read_at ≥ mtime + 3 s → skip (fast path: the row is settled)
   else compute XXH3 hash:
-    if hash == manifest.hash → skip (content unchanged despite mtime)
+    if hash == manifest.hash → skip, the row takes the size, mtime and read_at
     else → parse this file
 ```
+
+A row read within 3 s of its file's modification time is unsettled
+(`operations::settled`): the manifest keeps whole seconds, and file systems step
+modification times by up to two, so a write in the same second, at the same size,
+would leave the row matching. Its file is hashed at the next check.
 
 ### Re-indexing
 
@@ -229,6 +236,12 @@ equals a fresh scan of the tree (`tests/test_incremental_equivalence.rs`).
   a changed body is deleted in the insert transaction, and the entity is embedded
   again on demand (`semantic_search`) or by `generate_embeddings` / `devscriptor
   embed`, the content-hash cache serving texts seen before.
+- **Changes announced.** Once a run knows which files it found created, changed
+  or deleted, and before it writes them, it hands them to the listeners of
+  `Database::on_file_changes`: the MCP server passes them on to the language
+  servers ([LSP Bridge Lifecycle](#lsp-bridge-lifecycle)). A first scan of a tree
+  announces nothing. `PipelineResult::unsettled` lists the files whose rows the run
+  left unsettled.
 
 ### Phase 2 — Parallel Parsing
 
@@ -427,9 +440,10 @@ changed, without walking the tree, by the [re-index rules](#re-indexing):
   `root`, against a one-level listing of its parent made with the scan's own
   walker, so the two cannot disagree on ignore files, hidden directories and
   excludes.
-- A file whose size and modification time match its manifest row is skipped, and
-  one whose content hash matches only has those refreshed. A path that no longer
-  exists, file or directory, is removed with what the manifest holds under it.
+- A file whose size and modification time match a settled manifest row is
+  skipped, and one whose content hash matches only has its row refreshed. A path
+  that no longer exists, file or directory, is removed with what the manifest
+  holds under it.
 - Calls and type uses are resolved against everything stored under `root`. The
   pipeline reads those entities once and keeps them for its next run (the symbol
   cache), updated with each run's changes; a full scan drops them, and so does a
@@ -443,7 +457,12 @@ root descends into, non-recursively, and watches new ones as they appear. It
 batches the source files that change within a debounce window and re-indexes
 them with `reindex_paths`; when events were lost it runs a full incremental scan.
 Where native events cannot be had, because no watcher can be created or the
-system's limit on watches is reached, it polls the same directories.
+system's limit on watches is reached, it polls the same directories. The files a
+run left unsettled are re-indexed once more 3 s later (`Signal::Recheck`), which
+finds a write in the same second that neither the row nor a poll can see.
+`WatchState` counts the change signals sent to the session and those it has
+handled; `WatchState::settle` waits until it has handled every signal sent before
+the wait began.
 
 Every full scan adds its canonical root to `metadata.indexed_roots`. The MCP
 server starts a watcher in the background on the deepest of those roots that
@@ -457,12 +476,22 @@ has: after `scan_codebase` and `start_analysis`, and at a tool call, at most eve
 ### The query-time check
 
 A watcher lags by its debounce and its re-index, and it may poll, fail, or be
-off. So the MCP query tools check their own answers (`crates/mcp/src/freshness.rs`).
-`CoreModule::handle_tool` runs the query and collects the `file_path`s the answer
-names; for `get_relationships`, the files of the entity and of each edge's other
-end. It then calls `ensure_fresh`, which:
+off. So the MCP tools that answer from the index check their own answers
+(`crates/mcp/src/freshness.rs`): the query tools, the analyses of the whole index
+(`find_dead_code`, `analyze_complexity`, `analyze_code`, `get_statistics`), and,
+in the LSP tools, the `name` resolution and the calls and uses the index adds.
+`freshness::fresh_answer` first waits for the server's watcher to handle what it
+has seen (`DevscriptorServerState::settle_watcher`: at most its debounce and 5 s;
+the answer says `reindex_pending` when the wait ran out). `CoreModule::handle_tool`
+runs the query and collects the `file_path`s the answer names; for
+`get_relationships`, the files of the entity and of each edge's other end. An
+analysis of the whole index, whose findings depend on files it does not name,
+first has `DevscriptorServerState::reconcile_unwatched` scan incrementally each
+scanned root in its scope that no watcher on native events covers. It then
+calls `ensure_fresh`, which:
 
-1. compares each file's size and modification time with its manifest row;
+1. compares each file's size and modification time with its manifest row, and,
+   where the row is unsettled, its content hash;
 2. re-indexes the changed, deleted, and new-but-indexable files, each under the
    deepest indexed root that contains it, at most 20 per answer;
 3. waits for that at most `DEVSCRIPTOR_FRESHNESS_BUDGET_MS` (250 ms). A re-index
@@ -500,7 +529,7 @@ edges from the index as the run before it left it.
 | `entities_fts` | FTS5 external-content table keyed by entity rowid (code-aware tokenizer) |
 | `embedding_cache` | `text_hash → vector` — skips ONNX on re-scans |
 | `embedding_jobs` | Background `embed --daemon` progress (`id`, `status`, `total`, `done`, timestamps) |
-| `scan_manifest` | Incremental scan state: path, hash, size, mtime |
+| `scan_manifest` | Incremental scan state: path, hash, size, mtime, when the file was read |
 | `symbol_refs` | The references each entity makes, which edges are derived from |
 | `file_imports` | Each file's imports: module, imported name, the name it binds, its line |
 | `metadata` | Key-value store: the schema version, the embedding space, the scanned roots |
@@ -703,6 +732,15 @@ its server under it. Stops go through one path, `stop_language` (graceful shutdo
 client, folders and documents dropped), with a `stop_reason` that `get_server_status`
 reports: `requested`, `idle` or `cap`, and `not started` for a server that never ran.
 Idle and cap stops are not crashes and leave the restart budget untouched.
+
+Before each request, `open_file` (and the workspace-symbol paths) bring the server
+up to date with the disk (`Translator::sync_with_disk`): an open document whose
+file changed is sent again, one read within 3 s of its last write is compared by
+content, one whose file is gone is closed, and the changes on disk noted since the
+server's last request go to it as `workspace/didChangeWatchedFiles`. The MCP server
+notes them from each re-index (`Database::on_file_changes` →
+`Translator::note_disk_changes`); `DiskChangeLog` keeps, by path, the latest
+change and how far each running server has heard.
 
 Some servers get settings of their own ([Language servers](lsp.md#what-servers-write-into-a-project)):
 rust-analyzer builds in `target/rust-analyzer` (`cargo.targetDir: true`), off the

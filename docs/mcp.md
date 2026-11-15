@@ -287,17 +287,25 @@ scan` or `scan_codebase`. They require no language server.
 
 The tools that answer from the index — `semantic_search`, `search_entities`,
 `search_functions`, `search_classes`, `fuzzy_search`, `query_with_context`,
-`get_entity_details`, `get_relationships`, `get_file_context` and
-`describe_file` — first check the files their answer names against the disk. A
-file whose size or modification time differs from what the last scan recorded,
-or that was deleted, is re-indexed, and if any was, the query runs again. So does
-a query that read a file while another answer or the watcher re-indexed it. Two
-fields, each present only when it names a file, say what happened:
+`get_entity_details`, `get_relationships`, `get_file_context`, `describe_file`,
+and the analyses of the whole index, `find_dead_code`, `analyze_complexity`,
+`analyze_code` and `get_statistics` — first wait for the server's watcher to
+re-index the changes it has seen, at most its debounce and 5 s. Then they check
+the files their answer names against the disk. A file whose size or modification
+time differs from what the last scan recorded, or that was deleted, is
+re-indexed, and so is one the index read within 3 s of its last write whose
+content differs; if any was, the query runs again. So does a query that read a
+file while another answer or the watcher re-indexed it. An analysis of the whole
+index depends on files its findings do not name, such as a caller of a function
+it reports dead, so it first scans each scanned root in its scope that no watcher
+on native events keeps current, incrementally. Three fields, each present only
+when it has something to say, tell what happened:
 
 | Field | Meaning |
 | --- | --- |
 | `refreshed_files` | Files re-indexed for this answer: it reflects them as they are on disk |
 | `stale_files` | Files that changed on disk but were not re-indexed: the answer may be older than them, so read them from disk before relying on it |
+| `reindex_pending` | `true`: the watcher was still re-indexing changes when the answer was read, so it may be older than files it does not name; `get_watch_status` tells when it is done |
 
 An answer re-indexes at most 20 files and waits for them at most
 `DEVSCRIPTOR_FRESHNESS_BUDGET_MS` milliseconds (default 250). A re-index that
@@ -307,9 +315,12 @@ scanned root or that the scan rules now exclude: those are never re-indexed. A
 new file that a scan would index is indexed when an answer names it
 (`describe_file`, `get_file_context`). `get_relationships` checks the files of
 the entity asked about and of every edge's other end, and the LSP position tools
-check the files of a symbol `name` before resolving it to a position. The
-server's watcher ([Watcher](watcher.md)) keeps most files current before any
-answer asks.
+check the files of a symbol `name` before resolving it to a position, as
+`get_references` and `get_incoming_calls` check the files of the uses and calls
+the index adds (`index_locations`, `index_calls`). The LSP tools wait for the
+watcher too, and each language server hears of the files changed on disk before
+its next request ([Language servers](lsp.md#files-changed-on-disk)). The server's
+watcher ([Watcher](watcher.md)) keeps most files current before any answer asks.
 
 ### Scanning & Analysis Jobs (7)
 

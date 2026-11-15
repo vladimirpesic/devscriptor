@@ -556,9 +556,11 @@ where
     Ok(result)
 }
 
-/// Whether the tool `name` answers from the index with results that name
-/// their files, so that the answer is first checked against those files on
-/// disk ([`crate::freshness`]).
+/// Whether the tool `name` answers from the index, so that the answer waits
+/// for the watcher and is checked against the files it names on disk
+/// ([`crate::freshness`]). The analyses of the whole index are among them: a
+/// finding names its file too, and `get_statistics` counts what the watcher
+/// has yet to re-index.
 fn reads_the_index(name: &str) -> bool {
     matches!(
         name,
@@ -572,7 +574,34 @@ fn reads_the_index(name: &str) -> bool {
             | "get_relationships"
             | "get_file_context"
             | "describe_file"
+            | "find_dead_code"
+            | "analyze_complexity"
+            | "analyze_code"
+            | "get_statistics"
     )
+}
+
+/// For an analysis of the whole index, the directory it analyzes (`None`:
+/// every scanned root): its findings depend on every file there, named or
+/// not, so the roots no watcher keeps current are scanned first
+/// ([`DevscriptorServerState::reconcile_unwatched`](crate::server::DevscriptorServerState::reconcile_unwatched)).
+/// `None` for any other tool, and for a `path` the tool will refuse.
+fn whole_index_scope(name: &str, arguments: Option<&Value>) -> Option<Option<std::path::PathBuf>> {
+    let path = arguments
+        .and_then(|args| args.get("path"))
+        .and_then(Value::as_str);
+    match name {
+        "find_dead_code" | "analyze_complexity" | "analyze_code" => {
+            CoreModule::scope_directory(path.unwrap_or(".")).ok()
+        }
+        // Its `path` filters by substring: a directory scopes the scan, any
+        // other text leaves every root in scope.
+        "get_statistics" => Some(
+            path.and_then(|path| CoreModule::scope_directory(path).ok())
+                .flatten(),
+        ),
+        _ => None,
+    }
 }
 
 impl CoreModule {
@@ -610,6 +639,9 @@ impl CoreModule {
         name: &str,
         arguments: Option<Value>,
     ) -> Result<ToolResult, ToolError> {
+        if let Some(scope) = whole_index_scope(name, arguments.as_ref()) {
+            self.state.reconcile_unwatched(scope.as_deref()).await;
+        }
         let (mut answer, report) = crate::freshness::fresh_answer(&self.state, || {
             self.answer_and_files(name, arguments.clone())
         })

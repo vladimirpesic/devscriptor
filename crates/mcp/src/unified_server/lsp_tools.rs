@@ -394,6 +394,10 @@ impl UnifiedMcpServer {
                 return Err(McpError::internal_error("LSP not initialized", None));
             }
         };
+        // The changes the watcher has seen reach the language servers with
+        // its re-index (`Translator::note_disk_changes`): wait for them, so
+        // that a server answers from the files as they are.
+        self.core.state().settle_watcher().await;
 
         match name {
             // Navigation
@@ -631,22 +635,30 @@ impl UnifiedMcpServer {
         let Some((family, folders)) = Self::index_scope(translator, file).await else {
             return;
         };
-        let database = self.core.state().database();
+        let state = self.core.state();
         let names = [name.to_string()];
-        let mut sites = Vec::new();
-        for folder in &folders {
-            match database.get_reference_sites(folder, &names).await {
-                Ok(found) => sites.extend(
-                    found
-                        .into_iter()
-                        .filter(|(_, _, language)| reference_family(language) == family)
-                        .map(|(site, line, _)| (site, line)),
-                ),
-                Err(e) => {
-                    tracing::debug!("No index uses of {name} under {}: {e}", folder.display())
+        // Read from an index current for the files of the sites: a site the
+        // index took from an older version of its file may be gone.
+        let read = crate::freshness::fresh_answer(state, || async {
+            let mut sites = Vec::new();
+            for folder in &folders {
+                match state.database().get_reference_sites(folder, &names).await {
+                    Ok(found) => sites.extend(
+                        found
+                            .into_iter()
+                            .filter(|(_, _, language)| reference_family(language) == family)
+                            .map(|(site, line, _)| (site, line)),
+                    ),
+                    Err(e) => {
+                        tracing::debug!("No index uses of {name} under {}: {e}", folder.display())
+                    }
                 }
             }
-        }
+            let files = sites.iter().map(|(site, _)| site.clone()).collect();
+            Ok::<_, std::convert::Infallible>((sites, files))
+        })
+        .await;
+        let Ok((sites, _)) = read;
         references.add_index_uses(name, sites);
     }
 
@@ -666,22 +678,30 @@ impl UnifiedMcpServer {
         let Some((family, folders)) = Self::index_scope(translator, file).await else {
             return;
         };
-        let database = self.core.state().database();
+        let state = self.core.state();
         let names = [name.to_string()];
-        let mut sites = Vec::new();
-        for folder in &folders {
-            match database.get_call_sites(folder, &names).await {
-                Ok(found) => sites.extend(
-                    found
-                        .into_iter()
-                        .filter(|(_, _, language, _)| reference_family(language) == family)
-                        .map(|(site, line, _, caller)| (site, line, caller)),
-                ),
-                Err(e) => {
-                    tracing::debug!("No index calls of {name} under {}: {e}", folder.display())
+        // Read from an index current for the files of the calls: a call the
+        // index took from an older version of its file may be gone.
+        let read = crate::freshness::fresh_answer(state, || async {
+            let mut sites = Vec::new();
+            for folder in &folders {
+                match state.database().get_call_sites(folder, &names).await {
+                    Ok(found) => sites.extend(
+                        found
+                            .into_iter()
+                            .filter(|(_, _, language, _)| reference_family(language) == family)
+                            .map(|(site, line, _, caller)| (site, line, caller)),
+                    ),
+                    Err(e) => {
+                        tracing::debug!("No index calls of {name} under {}: {e}", folder.display())
+                    }
                 }
             }
-        }
+            let files = sites.iter().map(|(site, ..)| site.clone()).collect();
+            Ok::<_, std::convert::Infallible>((sites, files))
+        })
+        .await;
+        let Ok((sites, _)) = read;
         calls.add_index_calls(name, sites);
     }
 
@@ -2299,6 +2319,16 @@ while True:
     /// [`asked`] about `name`: `buildOrdersQuery`, or the `ORDERS_LIMIT` the
     /// test file and the Python script read.
     async fn asked_about(tool: &str, name: &str) -> (Vec<String>, serde_json::Value) {
+        asked_after(tool, name, |_| {}).await
+    }
+
+    /// [`asked_about`], once `edit` has changed the scanned project (its
+    /// directory) on disk.
+    async fn asked_after(
+        tool: &str,
+        name: &str,
+        edit: impl FnOnce(&std::path::Path),
+    ) -> (Vec<String>, serde_json::Value) {
         let temp = tempfile::tempdir().unwrap();
         let project = temp.path().join("admin");
         std::fs::create_dir_all(&project).unwrap();
@@ -2333,6 +2363,7 @@ while True:
         )
         .await
         .unwrap();
+        edit(&project);
 
         let script = temp.path().join("fake_lsp.py");
         write(&script, FAKE_SERVER);
@@ -2474,6 +2505,46 @@ while True:
         assert!(
             opened.is_some() && opened < asked,
             "the test file is open first: {lines:?}"
+        );
+    }
+
+    /// The calls the index adds are read from the files as they are: a call
+    /// in a file deleted since the scan, or edited away, is not added.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_index_adds_no_call_that_is_gone() {
+        let (_, answer) = asked_after("get_incoming_calls", "buildOrdersQuery", |project| {
+            std::fs::remove_file(project.join("test/orders.test.js")).unwrap();
+        })
+        .await;
+        let calls: Vec<String> = answer["index_calls"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no index_calls: {answer}"))
+            .iter()
+            .map(|c| slashed(c["cite"].as_str().unwrap()))
+            .collect();
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert!(calls[0].ends_with("src/api/orders.js:5"), "{calls:?}");
+
+        let (_, answer) = asked_after("get_references", "buildOrdersQuery", |project| {
+            write(
+                &project.join("src/api/orders.js"),
+                "export function buildOrdersQuery() {\n  return '/api/orders';\n}\n",
+            );
+        })
+        .await;
+        let cites: Vec<String> = answer["index_locations"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no index_locations: {answer}"))
+            .iter()
+            .map(|l| slashed(l["cite"].as_str().unwrap()))
+            .collect();
+        assert!(
+            !cites.iter().any(|c| c.ends_with("src/api/orders.js:5")),
+            "{cites:?}"
+        );
+        assert!(
+            cites.iter().any(|c| c.ends_with("test/orders.test.js:3")),
+            "{cites:?}"
         );
     }
 

@@ -35,8 +35,9 @@ it names ([Answers check their files](#answers-check-their-files)).
    single re-index.
 3. The source files that changed during that window are re-indexed together,
    without walking the tree (`CodebasePipeline::reindex_paths`):
-   - a file is re-parsed only if its content changed (size and modification
-     time first, then an XXH3 hash),
+   - a file is re-parsed only if its content changed: its size and modification
+     time say it did not only when the index read it at least 3 s after its last
+     write, and otherwise its XXH3 hash is compared,
    - its entities are updated in place, the ones that vanished are removed, and
      its own edges (its calls, type uses, supertypes) are replaced,
    - edges **into** it from unchanged files are kept, and its calls into
@@ -47,8 +48,17 @@ it names ([Answers check their files](#answers-check-their-files)).
    - an entity keeps its embedding vector unless its body changed,
    - a deleted file, or every file of a deleted directory, is removed, and
    - a **new** file is added.
-4. When the operating system drops events (an overflow) or the watcher reports an
+4. A file the re-index read within 3 s of its last write is re-indexed once more
+   when the 3 s have passed. A write in the same second as the one read, at the
+   same size, leaves the file's size and modification time as they were, so
+   nothing else would tell it apart; two `git checkout`s a fraction of a second
+   apart make such writes. The second look is not reported when it finds the file
+   unchanged.
+5. When the operating system drops events (an overflow) or the watcher reports an
    error, the next re-index is a full incremental scan of the project instead.
+6. Each re-index tells the language servers of the files it found created,
+   changed or deleted, before their next request
+   ([Language servers](lsp.md#files-changed-on-disk)).
 
 A re-index of an unchanged file is effectively free, and the graph it leaves
 matches a fresh scan (see [Architecture](architecture.md#re-indexing)).
@@ -85,9 +95,11 @@ and other watchers often use up. The watch keeps the index current, a little
 later; its status says how it works (`mode: "poll"` and the `fallback_reason`,
 which the CLI prints too).
 
-Polling compares modification times in whole seconds, so an edit within the same
-second as the file's previous change is noticed with the next one. An answer's
-own check compares sizes as well ([below](#answers-check-their-files)).
+Polling compares modification times in whole seconds, so it does not notice an
+edit in the same second as the file's previous change. The watcher finds such an
+edit all the same: it looks again at each file it re-indexed within 3 s of its
+last write ([How it Works](#how-it-works)), and an answer's own check reads such a
+file ([below](#answers-check-their-files)).
 
 ## CLI: `devscriptor watch`
 
@@ -219,16 +231,26 @@ not start. See [MCP server](mcp.md) for the full tool list.
 ## Answers check their files
 
 A watcher can lag: within its debounce, while a re-index runs, while it polls,
-after it failed, or with `--no-watch`. So the query tools — `semantic_search`,
-`search_entities`, `search_functions`, `search_classes`, `fuzzy_search`,
-`query_with_context`, `get_entity_details`, `get_relationships`,
-`get_file_context` and `describe_file` — and the `name` resolution of the LSP
-position tools check the files of their answer against the disk before
-answering. A file whose size or modification time differs from what the last
-scan recorded is re-indexed, within a budget. If any was, or if the watcher
-re-indexed one of them while the query ran, the query runs again.
-The answer names the files it refreshed (`refreshed_files`) and those that may
-be newer than it (`stale_files`). See
+after it failed, or with `--no-watch`. So every answer read from the index — the
+query tools (`semantic_search`, `search_entities`, `search_functions`,
+`search_classes`, `fuzzy_search`, `query_with_context`, `get_entity_details`,
+`get_relationships`, `get_file_context`, `describe_file`), the analyses of the
+whole index (`find_dead_code`, `analyze_complexity`, `analyze_code`,
+`get_statistics`), the `name` resolution of the LSP position tools and the calls
+and uses the index adds to an LSP answer — first waits for the watcher to
+re-index the changes it has seen, at most its debounce and 5 s. An answer read
+before it had says so (`reindex_pending: true`). The LSP tools wait the same way,
+so that a language server hears of the changes first. An analysis of the whole
+index depends on files it does not name, so where no watcher on native events
+covers a scanned root in its scope (`--no-watch`, a polling watch, another
+project in the database), it scans that root incrementally first.
+
+The answer's files are then checked against the disk. A file whose size or
+modification time differs from what the last scan recorded is re-indexed, within
+a budget, and so is one the index read within 3 s of its last write whose content
+differs. If any was, or if the watcher re-indexed one of them while the query
+ran, the query runs again. The answer names the files it refreshed
+(`refreshed_files`) and those that may be newer than it (`stale_files`). See
 [MCP server](mcp.md#answers-follow-the-files-on-disk).
 
 ## Embeddings
@@ -253,6 +275,9 @@ graph current, and `start_watching` says why in `embed_skipped`.
   tear down the watcher; the next change triggers another attempt.
 - Changes that land **during** a re-index trigger the next one, so nothing is
   missed.
+- The watcher counts the changes it has been told of and those it has
+  re-indexed, so an answer can wait for exactly the changes seen before it began
+  (`WatchState::settle`), not for a fixed time.
 - In `devscriptor mcp`, a watcher without embeddings and the answers' own checks
   re-index through one pipeline, so the entities it resolves calls against
   between runs follow every change either makes.

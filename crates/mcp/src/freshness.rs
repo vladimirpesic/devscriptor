@@ -2,19 +2,20 @@
 //!
 //! The watcher keeps the index current, but an answer can still be older than
 //! a file: within the watcher's debounce, before its re-index finishes, while
-//! it polls or after it failed, and always with `--no-watch`. So before a query
-//! tool answers, the files its answer names are compared with the scan
-//! manifest, and those that changed on disk are re-indexed, within a budget.
-//! What the budget does not cover is named in the answer as stale rather than
-//! passed off as current. An answer computed while one of its files was
-//! re-indexed, by another answer's check or by the watcher, is computed again
-//! ([`fresh_answer`]).
+//! it polls or after it failed, and always with `--no-watch`. So an answer
+//! first waits for the watcher to re-index the changes it has seen, at most
+//! its debounce and [`WATCH_SETTLE_MARGIN`]. Then the files the answer names
+//! are compared with the scan manifest, and those that changed on disk are
+//! re-indexed, within a budget. What the budget does not cover is named in the
+//! answer as stale rather than passed off as current. An answer computed while
+//! one of its files was re-indexed, by another answer's check or by the
+//! watcher, is computed again ([`fresh_answer`]).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
-use devscriptor_core::database::operations::deepest_root;
+use devscriptor_core::database::operations::{ScanManifestEntry, deepest_root};
 use serde_json::{Value, json};
 use tracing::{debug, warn};
 
@@ -35,6 +36,10 @@ pub const MAX_FILES: usize = 20;
 /// How many times [`fresh_answer`] computes an answer again before it reports
 /// the files that keep changing under it as stale.
 pub const MAX_RERUNS: usize = 2;
+
+/// How long past its debounce an answer waits for the watcher to re-index the
+/// changes it has seen ([`DevscriptorServerState::settle_watcher`]).
+pub const WATCH_SETTLE_MARGIN: Duration = Duration::from_secs(5);
 
 /// The budget [`BUDGET_ENV_VAR`] sets, or [`DEFAULT_BUDGET`] when it is unset
 /// or not a number of milliseconds.
@@ -65,13 +70,16 @@ pub struct FreshnessReport {
     /// outside every scanned root, excluded by the scan rules, or not
     /// parsable. An answer may be older than these files.
     pub stale: Vec<String>,
+    /// Whether the watcher was still re-indexing changes it had seen when the
+    /// answer was read: the answer may be older than files it does not name.
+    pub pending: bool,
 }
 
 impl FreshnessReport {
     /// Whether the index held every file as it is on disk.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.refreshed.is_empty() && self.stale.is_empty()
+        self.refreshed.is_empty() && self.stale.is_empty() && !self.pending
     }
 
     /// Add the files `refreshed` names to [`Self::refreshed`], once each.
@@ -84,7 +92,8 @@ impl FreshnessReport {
     }
 
     /// Add `refreshed_files` and `stale_files` to an answer, each only when
-    /// it names a file. An answer that is not a JSON object is left alone.
+    /// it names a file, and `reindex_pending` when [`Self::pending`]. An
+    /// answer that is not a JSON object is left alone.
     pub fn annotate(&self, answer: &mut Value) {
         let Some(answer) = answer.as_object_mut() else {
             return;
@@ -94,6 +103,9 @@ impl FreshnessReport {
         }
         if !self.stale.is_empty() {
             answer.insert("stale_files".into(), json!(self.stale));
+        }
+        if self.pending {
+            answer.insert("reindex_pending".into(), json!(true));
         }
     }
 }
@@ -131,6 +143,9 @@ pub fn named_files(answer: &Value) -> Vec<String> {
 
 /// Compute an answer from the index that is current for the files it names.
 ///
+/// The answer waits first for the server's watcher to re-index the changes
+/// it has seen ([`DevscriptorServerState::settle_watcher`]); when it does not
+/// in time, the report says so ([`FreshnessReport::pending`]).
 /// `query` reads the answer and names the files it was read from. Those are
 /// checked against the disk ([`ensure_fresh`]); the answer is computed again
 /// when any of them was re-indexed after it began to be read, whether by that
@@ -155,9 +170,12 @@ where
     Fut: Future<Output = Result<(T, Vec<String>), E>>,
 {
     let database = state.database();
+    let mut report = FreshnessReport {
+        pending: !state.settle_watcher().await,
+        ..FreshnessReport::default()
+    };
     let mut began = database.index_epoch();
     let (mut answer, mut files) = query().await?;
-    let mut report = FreshnessReport::default();
     for run in 0..=MAX_RERUNS {
         let checked = ensure_fresh(state, &files).await;
         report.add_refreshed(checked.refreshed);
@@ -184,9 +202,11 @@ where
 /// allows, before an answer that names them is given.
 ///
 /// Each file is compared with its scan manifest row by size and modification
-/// time. A changed or deleted file is re-indexed, and so is a file the index
-/// has never seen that a scan would index; each under the deepest scanned root
-/// that contains it, the root the watcher uses. At most [`MAX_FILES`] are
+/// time, and by content when the row cannot vouch for those alone
+/// ([`ScanManifestEntry::vouches_for`]). A changed or deleted file is
+/// re-indexed, and so is a file the index has never seen that a scan would
+/// index; each under the deepest scanned root that contains it, the root the
+/// watcher uses. At most [`MAX_FILES`] are
 /// re-indexed, through the server's structural pipeline
 /// ([`DevscriptorServerState::structural_pipeline`]), and the answer waits for
 /// them at most [`DevscriptorServerState::freshness_budget`]. A re-index that
@@ -231,9 +251,6 @@ pub async fn ensure_fresh(state: &DevscriptorServerState, paths: &[String]) -> F
 /// them; `None` when it is not a file on disk.
 type DiskState = Option<(u64, u64)>;
 
-/// A scan manifest row: content hash, size and modification time.
-type ManifestRow = (String, u64, u64);
-
 async fn check(
     state: &DevscriptorServerState,
     paths: &[String],
@@ -241,12 +258,13 @@ async fn check(
     let database = state.database();
     let before = manifest_rows(state, paths).await?;
     let disk = disk_states(paths.to_vec()).await?;
+    let current = held_as_on_disk(&before, &disk).await?;
     let changed: Vec<&String> = paths
         .iter()
         .filter(|path| {
             let on_disk = disk.get(*path).copied().flatten();
             match before.get(*path) {
-                Some((_, size, mtime)) => on_disk != Some((*size, *mtime)),
+                Some(_) => !current.contains(path.as_str()),
                 // Never indexed: worth a look only if it is a file.
                 None => on_disk.is_some(),
             }
@@ -321,39 +339,67 @@ async fn check(
     // What the index holds now, against what is on disk now.
     let after = manifest_rows(state, &attempted).await?;
     let disk = disk_states(attempted.clone()).await?;
+    let current = held_as_on_disk(&after, &disk).await?;
     for path in attempted {
         let row = after.get(&path);
-        let current = match (row, disk.get(&path).copied().flatten()) {
-            (None, None) => true,
-            (Some((_, size, mtime)), Some(on_disk)) => (*size, *mtime) == on_disk,
-            _ => false,
-        };
-        let hash_before = before.get(&path).map(|(hash, ..)| hash);
-        if !current {
+        let gone = row.is_none() && disk.get(&path).copied().flatten().is_none();
+        let hash_before = before.get(&path).map(|row| &row.content_hash);
+        if !(gone || current.contains(path.as_str())) {
             report.stale.push(path);
-        } else if row.map(|(hash, ..)| hash) != hash_before {
+        } else if row.map(|row| &row.content_hash) != hash_before {
             report.refreshed.push(path);
         }
     }
     Ok(report)
 }
 
+/// The paths of `rows` whose files the rows hold as they are on `disk`: the
+/// same size and modification time, and, where a row cannot vouch for those
+/// alone, the same content hash.
+async fn held_as_on_disk(
+    rows: &HashMap<String, ScanManifestEntry>,
+    disk: &HashMap<String, DiskState>,
+) -> anyhow::Result<HashSet<String>> {
+    let mut current = HashSet::new();
+    let mut to_hash: Vec<(String, String)> = Vec::new();
+    for (path, row) in rows {
+        let Some(Some((size, mtime))) = disk.get(path) else {
+            continue;
+        };
+        if row.vouches_for(*size, *mtime) {
+            current.insert(path.clone());
+        } else if row.size_bytes == *size && row.mtime_secs == *mtime {
+            to_hash.push((path.clone(), row.content_hash.clone()));
+        }
+    }
+    if !to_hash.is_empty() {
+        let same = tokio::task::spawn_blocking(move || {
+            to_hash
+                .into_iter()
+                .filter(|(path, hash)| {
+                    devscriptor_core::utils::security::compute_file_hash(Path::new(path))
+                        .is_ok_and(|on_disk| on_disk == *hash)
+                })
+                .map(|(path, _)| path)
+                .collect::<Vec<_>>()
+        })
+        .await?;
+        current.extend(same);
+    }
+    Ok(current)
+}
+
 /// The scan manifest rows of `paths`, by path.
 async fn manifest_rows(
     state: &DevscriptorServerState,
     paths: &[String],
-) -> anyhow::Result<HashMap<String, ManifestRow>> {
+) -> anyhow::Result<HashMap<String, ScanManifestEntry>> {
     Ok(state
         .database()
         .get_scan_manifest_entries(paths)
         .await?
         .into_iter()
-        .map(|entry| {
-            (
-                entry.path,
-                (entry.content_hash, entry.size_bytes, entry.mtime_secs),
-            )
-        })
+        .map(|row| (row.path.clone(), row))
         .collect())
 }
 
@@ -427,13 +473,22 @@ mod tests {
 
         let report = FreshnessReport {
             refreshed: vec!["/p/a.py".into()],
-            stale: Vec::new(),
+            ..FreshnessReport::default()
         };
         report.annotate(&mut answer);
         assert_eq!(
             answer,
             json!({"results": [], "refreshed_files": ["/p/a.py"]})
         );
+
+        let mut answer = json!({"results": []});
+        let pending = FreshnessReport {
+            pending: true,
+            ..FreshnessReport::default()
+        };
+        assert!(!pending.is_empty());
+        pending.annotate(&mut answer);
+        assert_eq!(answer, json!({"results": [], "reindex_pending": true}));
     }
 
     #[test]

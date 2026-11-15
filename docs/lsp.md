@@ -13,6 +13,7 @@ to configure them.
 - [Installing servers](#installing-servers)
 - [Lifecycle](#lifecycle)
 - [Reliability](#reliability)
+- [Files changed on disk](#files-changed-on-disk)
 - [What servers write into a project](#what-servers-write-into-a-project)
 - [Positions](#positions)
 - [Configuration file](#configuration-file)
@@ -256,6 +257,32 @@ And these keep a session going:
   killed), and killed from `Drop` when a future is cancelled. On Linux each server
   also asks the kernel for `PR_SET_PDEATHSIG(SIGKILL)`, so it dies with Devscriptor
   even when Devscriptor itself is killed.
+
+## Files changed on disk
+
+A language server answers from its own view of the files: the text it was sent
+for a document it holds open, and what it read of the others. Before each request,
+Devscriptor brings that view up to date with the disk:
+
+- **Open documents.** Each document the server holds open is compared with its
+  file. One whose modification time or size changed is sent again (`didChange`),
+  and so is one read within 3 s of its last write whose content differs: a write in
+  the same second, at the same size, leaves both as they were. One whose file is
+  gone is closed (`didClose`). A server holding a deleted file open would report
+  references in it.
+- **Other files.** Each re-index of the code index tells the running servers whose
+  folders hold them of the files it found created, changed or deleted, with
+  `workspace/didChangeWatchedFiles` before the server's next request. Those are the
+  source files the index covers, under its scanned roots; changes indexed by
+  another process are not seen. The client declares the notification without
+  dynamic registration, so it takes no patterns from the server, and a server that
+  would rather watch files itself, such as rust-analyzer, still does.
+- **The watcher first.** The LSP tools of `devscriptor mcp` wait for its watcher to
+  re-index the changes it has seen, at most its debounce and 5 s, so that after a
+  `git checkout` a server has heard of the files the checkout rewrote before it is
+  asked.
+
+A server started later reads the files as they are.
 
 ## What servers write into a project
 

@@ -1439,6 +1439,35 @@ pub async fn get_all_relationships(
     .map_err(|e| crate::error::Error::task_join("blocking task", e))?
 }
 
+/// How long after a file's modification time another write can still leave
+/// the file with the same size and modification second: the manifest records
+/// whole seconds, and file systems step modification times by up to two
+/// seconds (FAT; most by far less). A manifest row whose file was read within
+/// this long of its modification time cannot tell, by size and time alone, its
+/// version of the file from a later one, so the file is hashed again before it
+/// counts as unchanged.
+pub const RACY_WINDOW_MS: u64 = 3_000;
+
+/// Whether a file last modified at `mtime_secs` and read at `read_at_ms` has
+/// had no write since that leaves it the same size and modification second:
+/// it was read [`RACY_WINDOW_MS`] or more after its modification time.
+#[must_use]
+pub fn settled(mtime_secs: u64, read_at_ms: u64) -> bool {
+    read_at_ms
+        >= mtime_secs
+            .saturating_mul(1000)
+            .saturating_add(RACY_WINDOW_MS)
+}
+
+/// `time` in milliseconds since 1970; 0 before it.
+#[must_use]
+pub fn unix_millis(time: std::time::SystemTime) -> u64 {
+    time.duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| {
+            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+        })
+}
+
 /// Scan manifest row
 #[derive(Debug, Clone)]
 pub struct ScanManifestEntry {
@@ -1446,12 +1475,72 @@ pub struct ScanManifestEntry {
     pub path: String,
     /// Content hash (XXH3 hex)
     pub content_hash: String,
-    /// Last parsed timestamp (ISO 8601)
+    /// When the row was written (UTC)
     pub last_parsed_at: String,
-    /// File size in bytes at last parse
+    /// File size in bytes when it was read for `content_hash`
     pub size_bytes: u64,
-    /// File mtime as UNIX epoch seconds at last parse
+    /// File mtime as UNIX epoch seconds when it was read for `content_hash`
     pub mtime_secs: u64,
+    /// When the file was read for `content_hash`, in milliseconds since 1970:
+    /// a time taken before the read. 0 when unknown.
+    pub read_at_ms: u64,
+}
+
+impl ScanManifestEntry {
+    /// Whether the file's size and modification time tell, on their own, the
+    /// version this row hashed from any later one ([`settled`]).
+    #[must_use]
+    pub fn settled(&self) -> bool {
+        settled(self.mtime_secs, self.read_at_ms)
+    }
+
+    /// Whether a file of `size` bytes modified at `mtime_secs` is, without
+    /// reading it, the version this row hashed: the same size and time, and a
+    /// settled row.
+    #[must_use]
+    pub fn vouches_for(&self, size: u64, mtime_secs: u64) -> bool {
+        self.size_bytes == size && self.mtime_secs == mtime_secs && self.settled()
+    }
+}
+
+/// A scan manifest row to write: what a run read of a file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestRow {
+    /// File path
+    pub path: String,
+    /// Content hash (XXH3 hex) of what the run read
+    pub content_hash: String,
+    /// File size in bytes, as the run found it before reading the file
+    pub size_bytes: u64,
+    /// File mtime as UNIX epoch seconds, as the run found it before reading
+    /// the file
+    pub mtime_secs: u64,
+    /// When the run started reading files, in milliseconds since 1970
+    pub read_at_ms: u64,
+}
+
+impl ManifestRow {
+    /// Whether the row will be settled ([`settled`]).
+    #[must_use]
+    pub fn settled(&self) -> bool {
+        settled(self.mtime_secs, self.read_at_ms)
+    }
+}
+
+/// The columns of a [`ScanManifestEntry`], in its order.
+const MANIFEST_COLUMNS: &str =
+    "path, content_hash, last_parsed_at, size_bytes, mtime_secs, read_at_ms";
+
+fn manifest_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScanManifestEntry> {
+    let unsigned = |index: usize| row.get::<_, i64>(index).map_or(0, |v| v.max(0) as u64);
+    Ok(ScanManifestEntry {
+        path: row.get(0)?,
+        content_hash: row.get(1)?,
+        last_parsed_at: row.get(2)?,
+        size_bytes: unsigned(3),
+        mtime_secs: unsigned(4),
+        read_at_ms: unsigned(5),
+    })
 }
 
 /// Load the entire scan_manifest into memory.
@@ -1459,19 +1548,10 @@ pub async fn load_scan_manifest(pool: &ConnectionPool) -> Result<Vec<ScanManifes
     let pool = pool.clone();
     tokio::task::spawn_blocking(move || {
         let conn = pool.get()?;
-        let mut stmt = conn.prepare_cached(
-            "SELECT path, content_hash, last_parsed_at, size_bytes, mtime_secs FROM scan_manifest",
-        )?;
+        let mut stmt =
+            conn.prepare_cached(&format!("SELECT {MANIFEST_COLUMNS} FROM scan_manifest"))?;
         let rows = stmt
-            .query_map([], |row| {
-                Ok(ScanManifestEntry {
-                    path: row.get(0)?,
-                    content_hash: row.get(1)?,
-                    last_parsed_at: row.get(2)?,
-                    size_bytes: row.get::<_, i64>(3).map(|v| v as u64).unwrap_or(0),
-                    mtime_secs: row.get::<_, i64>(4).map(|v| v as u64).unwrap_or(0),
-                })
-            })?
+            .query_map([], manifest_entry)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
     })
@@ -1491,20 +1571,11 @@ pub async fn get_scan_manifest_entries(
         let mut entries = Vec::new();
         for chunk in paths.chunks(900) {
             let sql = format!(
-                "SELECT path, content_hash, last_parsed_at, size_bytes, mtime_secs \
-                 FROM scan_manifest WHERE path IN ({})",
+                "SELECT {MANIFEST_COLUMNS} FROM scan_manifest WHERE path IN ({})",
                 placeholders(chunk.len())
             );
             let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok(ScanManifestEntry {
-                    path: row.get(0)?,
-                    content_hash: row.get(1)?,
-                    last_parsed_at: row.get(2)?,
-                    size_bytes: row.get::<_, i64>(3).map(|v| v as u64).unwrap_or(0),
-                    mtime_secs: row.get::<_, i64>(4).map(|v| v as u64).unwrap_or(0),
-                })
-            })?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), manifest_entry)?;
             for row in rows {
                 entries.push(row?);
             }
@@ -1603,75 +1674,43 @@ pub fn deepest_root<'a>(roots: &'a [PathBuf], path: &Path) -> Option<&'a PathBuf
         .max_by_key(|root| root.components().count())
 }
 
-/// Upsert a scan_manifest row.
-pub async fn upsert_scan_manifest(
-    pool: &ConnectionPool,
-    path: &str,
-    content_hash: &str,
-    last_parsed_at: &str,
-    size_bytes: u64,
-    mtime_secs: u64,
-) -> Result<()> {
-    let pool = pool.clone();
-    let path = path.to_string();
-    let content_hash = content_hash.to_string();
-    let last_parsed_at = last_parsed_at.to_string();
-    tokio::task::spawn_blocking(move || {
-        let conn = pool.get()?;
-        conn.prepare_cached(
-            "INSERT INTO scan_manifest (path, content_hash, last_parsed_at, size_bytes, mtime_secs)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(path) DO UPDATE SET
-               content_hash = excluded.content_hash,
-               last_parsed_at = excluded.last_parsed_at,
-               size_bytes = excluded.size_bytes,
-               mtime_secs = excluded.mtime_secs",
-        )?
-        .execute(rusqlite::params![
-            &path,
-            &content_hash,
-            &last_parsed_at,
-            size_bytes as i64,
-            mtime_secs as i64,
-        ])?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| crate::error::Error::task_join("upsert scan manifest", e))?
-}
-
-/// Upsert multiple scan_manifest rows in a single transaction.
+/// Upsert scan_manifest rows in a single transaction, each stamped with the
+/// time it is written.
 ///
 /// Runs all upserts inside one `BEGIN`/`COMMIT` so incremental scans with
 /// many changed files don't pay one `spawn_blocking`+transaction per file.
 pub async fn batch_upsert_scan_manifest(
     pool: &ConnectionPool,
-    entries: Vec<(String, String, String, u64, u64)>,
+    rows: Vec<ManifestRow>,
 ) -> Result<()> {
-    if entries.is_empty() {
+    if rows.is_empty() {
         return Ok(());
     }
     let pool = pool.clone();
     tokio::task::spawn_blocking(move || {
         let conn = pool.get()?;
+        let written = time::OffsetDateTime::now_utc().to_string();
         let tx = begin_write_transaction(&conn)?;
         {
-            let mut stmt = tx.prepare_cached(
-                "INSERT INTO scan_manifest (path, content_hash, last_parsed_at, size_bytes, mtime_secs)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
+            let mut stmt = tx.prepare_cached(&format!(
+                "INSERT INTO scan_manifest ({MANIFEST_COLUMNS})
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(path) DO UPDATE SET
                    content_hash = excluded.content_hash,
                    last_parsed_at = excluded.last_parsed_at,
                    size_bytes = excluded.size_bytes,
-                   mtime_secs = excluded.mtime_secs",
-            )?;
-            for (path, content_hash, last_parsed_at, size_bytes, mtime_secs) in &entries {
+                   mtime_secs = excluded.mtime_secs,
+                   read_at_ms = excluded.read_at_ms"
+            ))?;
+            let signed = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
+            for row in &rows {
                 stmt.execute(rusqlite::params![
-                    path,
-                    content_hash,
-                    last_parsed_at,
-                    *size_bytes as i64,
-                    *mtime_secs as i64,
+                    row.path,
+                    row.content_hash,
+                    written,
+                    signed(row.size_bytes),
+                    signed(row.mtime_secs),
+                    signed(row.read_at_ms),
                 ])?;
             }
         }

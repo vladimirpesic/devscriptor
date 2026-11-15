@@ -12,7 +12,10 @@
 //! they exercise the exact same production code paths.
 
 use crate::database::embeddings::entity_to_text;
-use crate::database::{Database, DatabaseConfig, FileRecord, ReindexGuard};
+use crate::database::operations::{ManifestRow, ScanManifestEntry, unix_millis};
+use crate::database::{
+    Database, DatabaseConfig, FileChange, FileChangeKind, FileRecord, ReindexGuard,
+};
 use crate::embeddings::{EmbeddingConfig, EmbeddingService};
 use crate::entities::{Entity, EntityId};
 use crate::error::Result;
@@ -182,6 +185,15 @@ pub struct PipelineResult {
     pub files_failed: usize,
     /// Files skipped during incremental scan (unchanged)
     pub files_skipped: usize,
+    /// Files gone from disk whose entities the run removed
+    pub files_removed: usize,
+    /// Files whose manifest rows the run wrote unsettled
+    /// ([`ScanManifestEntry::settled`]), not counting those modified in the
+    /// future: a write in the same second may have changed one without
+    /// changing its size or time. A re-index of them
+    /// [`RACY_WINDOW_MS`](crate::database::operations::RACY_WINDOW_MS) later,
+    /// as the watcher makes, hashes them again and settles their rows.
+    pub unsettled: Vec<PathBuf>,
     /// Total entities extracted
     pub entity_count: usize,
     /// Relationship rows this run inserted (per-file and cross-file, forward
@@ -214,6 +226,8 @@ impl PipelineResult {
             files_parsed: 0,
             files_failed: 0,
             files_skipped: 0,
+            files_removed: 0,
+            unsettled: Vec::new(),
             entity_count: 0,
             relationship_count: 0,
             cross_file_relationship_count: 0,
@@ -236,11 +250,50 @@ impl Default for PipelineResult {
 /// What parsing a set of files leaves for the steps after it.
 struct ParseOutput {
     /// `(path, hash, size_bytes, mtime_secs)` of each parsed file, for the
-    /// manifest.
+    /// manifest ([`CodebasePipeline::update_manifest`]).
     processed: Vec<(String, String, u64, u64)>,
     /// When references resolve across files, the ids of the entities stored
     /// for the parsed files, in the order they were parsed.
     stored: Vec<EntityId>,
+}
+
+/// The changes on disk a run found: each file it read (path and content
+/// hash) is created when `known` has no row for it, changed when its hash
+/// differs from the row's, and unchanged otherwise; each of `removed` is
+/// deleted.
+fn file_changes<'a>(
+    read: impl IntoIterator<Item = (&'a str, &'a str)>,
+    known: &HashMap<String, ScanManifestEntry>,
+    removed: &[String],
+) -> Vec<FileChange> {
+    let mut changes: Vec<FileChange> = read
+        .into_iter()
+        .filter_map(|(path, hash)| {
+            let kind = match known.get(path) {
+                None => FileChangeKind::Created,
+                Some(row) if row.content_hash != hash => FileChangeKind::Changed,
+                Some(_) => return None,
+            };
+            Some(FileChange {
+                path: path.to_string(),
+                kind,
+            })
+        })
+        .collect();
+    changes.extend(removed.iter().map(|path| FileChange {
+        path: path.clone(),
+        kind: FileChangeKind::Deleted,
+    }));
+    changes
+}
+
+/// The files of `rows` whose rows will be unsettled, but for those modified
+/// after the run began to read: time settles those, and every check hashes
+/// them until it has.
+fn unsettled(rows: &[ManifestRow]) -> impl Iterator<Item = PathBuf> + '_ {
+    rows.iter()
+        .filter(|row| !row.settled() && row.mtime_secs.saturating_mul(1000) <= row.read_at_ms)
+        .map(|row| PathBuf::from(&row.path))
 }
 
 /// Unified codebase analysis pipeline.
@@ -448,6 +501,9 @@ impl CodebasePipeline {
 
         // No re-index of single files meanwhile.
         let _run = self.runs.lock().await;
+        // Before any file is read: a manifest row's read time is never later
+        // than the read.
+        let read_at_ms = unix_millis(std::time::SystemTime::now());
 
         // ========== PHASE 1: DISCOVER FILES ==========
         info!("Phase 1: Discovering files in {}", root.display());
@@ -472,13 +528,13 @@ impl CodebasePipeline {
 
         let mut hash_map: HashMap<PathBuf, String> = HashMap::new();
 
-        // Build manifest map keyed by path: (hash, size, mtime).
-        let manifest_map: HashMap<String, (String, u64, u64)> = if reindex {
+        // The manifest by path: what the last run read of each file.
+        let manifest_map: HashMap<String, ScanManifestEntry> = if reindex {
             self.db
                 .load_scan_manifest()
                 .await?
                 .into_iter()
-                .map(|e| (e.path, (e.content_hash, e.size_bytes, e.mtime_secs)))
+                .map(|row| (row.path.clone(), row))
                 .collect()
         } else {
             HashMap::new()
@@ -514,21 +570,16 @@ impl CodebasePipeline {
         }
 
         let entries = if self.config.incremental {
-            // Fast-path: skip hashing when size AND mtime match the manifest.
-            // Only hash files whose (size, mtime) differs — this avoids reading
-            // file content for the majority of unchanged files in large repos.
+            // Fast-path: skip hashing when the manifest row vouches for the
+            // file's size and mtime. Only the other files are read — this
+            // avoids reading file content for the majority of unchanged files
+            // in large repos.
             let needs_hash: Vec<&FileEntry> = entries
                 .iter()
                 .filter(|entry| {
-                    let path_str = entry.path.to_string_lossy().to_string();
-                    match manifest_map.get(&path_str) {
-                        Some((_, saved_size, saved_mtime))
-                            if *saved_size == entry.size && *saved_mtime == entry.modified =>
-                        {
-                            false // size+mtime match: no need to hash
-                        }
-                        _ => true, // changed or new: must hash
-                    }
+                    !manifest_map
+                        .get(&entry.path_str())
+                        .is_some_and(|row| row.vouches_for(entry.size, entry.modified))
                 })
                 .collect();
 
@@ -561,32 +612,41 @@ impl CodebasePipeline {
             }
 
             let mut skipped = 0usize;
+            // Touched but not changed: the manifest takes the new size and
+            // time, so that a later run can take the fast path.
+            let mut refreshed: Vec<ManifestRow> = Vec::new();
             let filtered: Vec<FileEntry> = entries
                 .into_iter()
                 .filter(|entry| {
-                    let path_str = entry.path.to_string_lossy().to_string();
+                    let path_str = entry.path_str();
+                    let row = manifest_map.get(&path_str);
 
-                    // Fast-path: unchanged by size+mtime, no hash computed.
-                    if let Some((_, saved_size, saved_mtime)) = manifest_map.get(&path_str)
-                        && *saved_size == entry.size
-                        && *saved_mtime == entry.modified
-                    {
+                    // Fast-path: the row vouches for it, no hash computed.
+                    if row.is_some_and(|row| row.vouches_for(entry.size, entry.modified)) {
                         skipped += 1;
                         return false;
                     }
 
                     // Slow-path: check content hash.
                     if let Some(hash) = hash_map.get(&entry.path)
-                        && let Some((saved_hash, _, _)) = manifest_map.get(&path_str)
-                        && saved_hash == hash
+                        && row.is_some_and(|row| row.content_hash == *hash)
                     {
                         skipped += 1;
+                        refreshed.push(ManifestRow {
+                            path: path_str,
+                            content_hash: hash.clone(),
+                            size_bytes: entry.size,
+                            mtime_secs: entry.modified,
+                            read_at_ms,
+                        });
                         return false;
                     }
 
                     true
                 })
                 .collect();
+            result.unsettled.extend(unsettled(&refreshed));
+            self.db.batch_upsert_scan_manifest(refreshed).await?;
 
             result.files_skipped = skipped;
             info!(
@@ -625,13 +685,26 @@ impl CodebasePipeline {
         let ParseOutput { processed, stored } = self
             .parse_and_insert(entries, reindex_root, &roots, hashes, &mut result)
             .await?;
+        // What changed in a tree the index held: a first scan of a tree
+        // finds nothing anyone following its files has not read already.
+        if manifest_map
+            .keys()
+            .any(|path| Path::new(path).starts_with(root))
+        {
+            let read = processed
+                .iter()
+                .map(|(path, hash, ..)| (path.as_str(), hash.as_str()));
+            self.db
+                .announce_file_changes(&file_changes(read, &manifest_map, &removed_paths));
+        }
 
         // ========== PHASE 2b: UPDATE MANIFEST & CLEANUP REMOVED FILES ==========
-        self.update_manifest(&processed, self.config.incremental)
+        self.update_manifest(&processed, read_at_ms, self.config.incremental, &mut result)
             .await?;
         // Removed-file cleanup, on any re-index, full or incremental: the
         // manifest says what the previous scan saw.
         self.remove_files(&removed_paths).await?;
+        result.files_removed = removed_paths.len();
 
         // ========== PHASE 3: RELATIONSHIPS FROM REFERENCES ==========
         if self.resolves_references() {
@@ -719,6 +792,9 @@ impl CodebasePipeline {
     /// [`Self::reindex_paths`], with the run lock held.
     async fn reindex_locked(&self, root: &Path, paths: &[PathBuf]) -> Result<PipelineResult> {
         let mut result = PipelineResult::new();
+        // Before any file is read: a manifest row's read time is never later
+        // than the read.
+        let read_at_ms = unix_millis(std::time::SystemTime::now());
         let mut wanted: Vec<PathBuf> = paths
             .iter()
             .map(|path| {
@@ -765,23 +841,18 @@ impl CodebasePipeline {
 
         // Of those, the ones whose content changed since the manifest.
         let found_paths: Vec<String> = found.iter().map(FileEntry::path_str).collect();
-        let known: HashMap<String, (String, u64, u64)> = self
+        let known: HashMap<String, ScanManifestEntry> = self
             .db
             .get_scan_manifest_entries(&found_paths)
             .await?
             .into_iter()
-            .map(|entry| {
-                (
-                    entry.path,
-                    (entry.content_hash, entry.size_bytes, entry.mtime_secs),
-                )
-            })
+            .map(|row| (row.path.clone(), row))
             .collect();
         let mut candidates = Vec::new();
         for entry in found {
             let unchanged = known
                 .get(&entry.path_str())
-                .is_some_and(|(_, size, mtime)| *size == entry.size && *mtime == entry.modified);
+                .is_some_and(|row| row.vouches_for(entry.size, entry.modified));
             if unchanged {
                 result.files_skipped += 1;
             } else {
@@ -798,9 +869,8 @@ impl CodebasePipeline {
         let mut hashes: HashMap<PathBuf, String> = HashMap::new();
         let mut changed: Vec<FileEntry> = Vec::new();
         // Touched but not changed: the manifest takes the new size and time,
-        // so the next check takes the fast path.
-        let mut refreshed: Vec<(String, String, String, u64, u64)> = Vec::new();
-        let now = OffsetDateTime::now_utc().to_string();
+        // so that a later check can take the fast path.
+        let mut refreshed: Vec<ManifestRow> = Vec::new();
         for joined in hashed {
             let (entry, hash) =
                 joined.map_err(|e| crate::error::Error::task_join("hash a file to re-index", e))?;
@@ -813,17 +883,22 @@ impl CodebasePipeline {
                 }
             };
             let path = entry.path_str();
-            if known.get(&path).is_some_and(|(saved, ..)| *saved == hash) {
+            if known.get(&path).is_some_and(|row| row.content_hash == hash) {
                 result.files_skipped += 1;
-                refreshed.push((path, hash, now.clone(), entry.size, entry.modified));
+                refreshed.push(ManifestRow {
+                    path,
+                    content_hash: hash,
+                    size_bytes: entry.size,
+                    mtime_secs: entry.modified,
+                    read_at_ms,
+                });
             } else {
                 hashes.insert(entry.path.clone(), hash);
                 changed.push(entry);
             }
         }
-        if !refreshed.is_empty() {
-            self.db.batch_upsert_scan_manifest(refreshed).await?;
-        }
+        result.unsettled.extend(unsettled(&refreshed));
+        self.db.batch_upsert_scan_manifest(refreshed).await?;
         if changed.is_empty() && removed.is_empty() {
             return Ok(result);
         }
@@ -838,6 +913,13 @@ impl CodebasePipeline {
             .map(FileEntry::path_str)
             .chain(removed.iter().cloned())
             .collect();
+        let read: Vec<(String, &str)> = changed
+            .iter()
+            .filter_map(|entry| Some((entry.path_str(), hashes.get(&entry.path)?.as_str())))
+            .collect();
+        let read = read.iter().map(|(path, hash)| (path.as_str(), *hash));
+        self.db
+            .announce_file_changes(&file_changes(read, &known, &removed));
         // An answer read from the index while this run writes these files
         // may hold their older entities: it learns so once the run is over.
         let mut reindexing = self.db.reindexing(files.clone());
@@ -847,8 +929,10 @@ impl CodebasePipeline {
         let ParseOutput { processed, stored } = self
             .parse_and_insert(changed, Some(root), &roots, Some(&hashes), &mut result)
             .await?;
-        self.update_manifest(&processed, true).await?;
+        self.update_manifest(&processed, read_at_ms, true, &mut result)
+            .await?;
         self.remove_files(&removed).await?;
+        result.files_removed = removed.len();
         if self.resolves_references() {
             self.relink(root, &files, before, stored, &mut reindexing, &mut result)
                 .await?;
@@ -1153,12 +1237,16 @@ impl CodebasePipeline {
         })
     }
 
-    /// Record `processed` (path, hash, size, mtime) in the scan manifest: the
-    /// baseline later incremental runs compare files against.
+    /// Record `processed` (path, hash, size, mtime), files read from
+    /// `read_at_ms` on, in the scan manifest: the baseline later incremental
+    /// runs compare files against. The rows left unsettled join
+    /// `result.unsettled`.
     async fn update_manifest(
         &self,
         processed: &[(String, String, u64, u64)],
+        read_at_ms: u64,
         incremental: bool,
+        result: &mut PipelineResult,
     ) -> Result<()> {
         // Always seed the manifest, incremental or not, so that the first
         // incremental re-scan has a baseline rather than re-parsing every file.
@@ -1166,14 +1254,18 @@ impl CodebasePipeline {
             return Ok(());
         }
         // All upserts in a single transaction.
-        let now = OffsetDateTime::now_utc().to_string();
-        let manifest_entries: Vec<(String, String, String, u64, u64)> = processed
+        let rows: Vec<ManifestRow> = processed
             .iter()
-            .map(|(path, hash, size, mtime)| {
-                (path.clone(), hash.clone(), now.clone(), *size, *mtime)
+            .map(|(path, hash, size, mtime)| ManifestRow {
+                path: path.clone(),
+                content_hash: hash.clone(),
+                size_bytes: *size,
+                mtime_secs: *mtime,
+                read_at_ms,
             })
             .collect();
-        self.db.batch_upsert_scan_manifest(manifest_entries).await?;
+        result.unsettled.extend(unsettled(&rows));
+        self.db.batch_upsert_scan_manifest(rows).await?;
         if incremental {
             info!(
                 "Incremental: updated manifest for {} files",

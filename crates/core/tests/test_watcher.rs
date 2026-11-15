@@ -6,6 +6,10 @@
 //! `node_modules/` included, and can exhaust `fs.inotify.max_user_watches`.
 //! A change re-indexes the changed paths, not the tree.
 //!
+//! A file it re-indexed just after a write is re-indexed once more when a
+//! write in the same second, at the same size, can no longer go unnoticed, and
+//! `WatchState::settle` waits until every change it has seen is re-indexed.
+//!
 //! These tests pass in either mode: where the system's inotify watches are
 //! used up, the watcher polls, as designed.
 
@@ -14,9 +18,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use devscriptor_core::database::DatabaseConfig;
+use devscriptor_core::database::operations::RACY_WINDOW_MS;
 use devscriptor_core::parser::ParserConfig;
 use devscriptor_core::pipeline::{CodebasePipeline, PipelineConfig, PipelineResult};
-use devscriptor_core::watcher::{CodeWatcher, WatchConfig, WatchMode};
+use devscriptor_core::watcher::{CodeWatcher, WatchConfig, WatchMode, WatchState};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 
@@ -83,6 +88,7 @@ struct Watched {
     db: PathBuf,
     results: mpsc::UnboundedReceiver<PipelineResult>,
     mode: WatchMode,
+    state: Arc<WatchState>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -103,7 +109,8 @@ async fn watched(config: WatchConfig) -> Watched {
     let session = CodeWatcher::new(root.clone(), Arc::clone(&pipeline), config)
         .start()
         .expect("start watching");
-    let mode = session.state().mode();
+    let state = session.state();
+    let mode = state.mode();
     pipeline.analyze_directory(&root).await.expect("prime");
     let (tx, results) = mpsc::unbounded_channel();
     let task = tokio::spawn(session.run(move |rescan| {
@@ -116,6 +123,7 @@ async fn watched(config: WatchConfig) -> Watched {
         db,
         results,
         mode,
+        state,
         task,
     }
 }
@@ -225,5 +233,78 @@ async fn two_edits_in_one_window_are_reindexed_together() {
 
     // Nothing else followed.
     tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(watched.results.try_recv().is_err());
+}
+
+/// A wait that begins once the watch has seen a change ends once the change is
+/// re-indexed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settle_waits_for_the_reindex_of_what_was_seen() {
+    let watched = watched(WatchConfig {
+        debounce: Duration::from_secs(1),
+        poll_interval: Duration::from_millis(100),
+        ..WatchConfig::default()
+    })
+    .await;
+    write(
+        &watched.root,
+        "src/settled.py",
+        "def settled_now():\n    return 1\n",
+    );
+    // Seen by now, by an event or a poll; re-indexed only after the debounce.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(watched.state.settle(Duration::from_secs(10)).await);
+    assert!(indexed(&watched.db, "settled_now"));
+}
+
+/// A rewrite in the same second at the same size leaves the file's time and
+/// size as the re-index recorded them: no poll reports it, and no row can
+/// tell it from the version read. The watch re-indexes the file again once
+/// that can no longer happen, and finds it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rewrite_in_the_same_second_is_found_once_the_window_passes() {
+    let watched = watched(WatchConfig {
+        force_poll: true,
+        poll_interval: Duration::from_millis(200),
+        debounce: Duration::from_millis(100),
+    })
+    .await;
+    let file = watched.root.join("src/racy.py");
+    write(
+        &watched.root,
+        "src/racy.py",
+        "def racy_v1():\n    return 1\n",
+    );
+    assert!(wait_indexed(&watched.db, "racy_v1", Duration::from_secs(5)).await);
+
+    let modified = std::fs::metadata(&file)
+        .expect("metadata")
+        .modified()
+        .expect("mtime");
+    std::fs::write(&file, "def racy_v2():\n    return 1\n").expect("rewrite");
+    std::fs::File::options()
+        .write(true)
+        .open(&file)
+        .expect("open")
+        .set_modified(modified)
+        .expect("set the modification time");
+    let window = Duration::from_millis(RACY_WINDOW_MS);
+    assert!(wait_indexed(&watched.db, "racy_v2", window + Duration::from_secs(5)).await);
+    assert!(!indexed(&watched.db, "racy_v1"));
+}
+
+/// The second look at a file re-indexed just after a write is not reported
+/// when the file had not changed again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_look_that_finds_nothing_is_not_reported() {
+    let mut watched = watched(WatchConfig::default()).await;
+    write(&watched.root, "src/once.py", "def once():\n    return 1\n");
+    let result = tokio::time::timeout(Duration::from_secs(10), watched.results.recv())
+        .await
+        .expect("a re-index")
+        .expect("a result");
+    assert_eq!(result.files_parsed, 1, "{result:?}");
+
+    tokio::time::sleep(Duration::from_millis(RACY_WINDOW_MS) + Duration::from_secs(2)).await;
     assert!(watched.results.try_recv().is_err());
 }

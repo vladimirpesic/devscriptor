@@ -247,11 +247,16 @@ vector, so a query's time grows linearly with the vectors stored.
 
 ## Incremental scans
 
-`scan_manifest` stores each file's path, content hash, size, modification time and
-when it was parsed. An incremental scan, the watcher and the query-time check:
+`scan_manifest` stores each file's path, content hash, size, modification time (in
+whole seconds) and when the file was read. An incremental scan, the watcher and the
+query-time check:
 
-1. skip a file whose size and modification time match (no read at all);
-2. otherwise hash it (XXH3), and skip it, refreshing its row, if the hash matches;
+1. skip a file whose size and modification time match a row read at least 3 s
+   after that modification time (no read at all): a write that left both as they
+   were would have come before the read;
+2. otherwise hash it (XXH3), and skip it, refreshing its row, if the hash matches.
+   A file read within 3 s of its last write is hashed again at the next check: a
+   write in the same second, at the same size, leaves its size and time unchanged;
 3. otherwise re-parse it: its entities are upserted by their content-stable ids,
    the ones that vanished are removed, and its references and own edges are
    replaced, without deleting the file first, so edges into it from unchanged files

@@ -278,11 +278,28 @@ impl UnifiedMcpServer {
         })
     }
 
-    /// Create a new unified server with both core and LSP.
+    /// Create a new unified server with both core and LSP. The language
+    /// servers hear of the files each re-index finds created, changed or
+    /// deleted on disk ([`Translator::note_disk_changes`]).
     #[cfg(feature = "lsp")]
     pub fn with_lsp(core: Arc<CoreModule>, translator: Arc<Translator>) -> anyhow::Result<Self> {
         let lsp_manager = Arc::new(LspManager::new()?);
         let lsp_arch_manager = Arc::new(tokio::sync::Mutex::new(LspArchitectureManager::new()?));
+        let servers = Arc::downgrade(&translator);
+        core.state().database().on_file_changes(move |changes| {
+            use devscriptor_core::database::FileChangeKind;
+            use devscriptor_lsp::DiskChange;
+            if let Some(translator) = servers.upgrade() {
+                translator.note_disk_changes(changes.iter().map(|change| {
+                    let kind = match change.kind {
+                        FileChangeKind::Created => DiskChange::Created,
+                        FileChangeKind::Changed => DiskChange::Changed,
+                        FileChangeKind::Deleted => DiskChange::Deleted,
+                    };
+                    (std::path::PathBuf::from(&change.path), kind)
+                }));
+            }
+        });
 
         Ok(Self {
             core,

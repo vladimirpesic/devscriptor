@@ -9,6 +9,8 @@ mod reindex_log;
 pub mod schema;
 pub mod vector;
 
+use std::sync::Arc;
+
 use crate::entities::{Entity, EntityId, FileInfo, Relationship, SymbolRef};
 use crate::error::{Error, Result};
 use crate::parser::ImportInfo;
@@ -120,12 +122,39 @@ impl Default for DatabaseConfig {
     }
 }
 
+/// What happened to a file on disk, as a re-index found it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileChangeKind {
+    /// A file the index did not hold.
+    Created,
+    /// A file whose content differs from what the index held.
+    Changed,
+    /// A file the index held that is gone.
+    Deleted,
+}
+
+/// A file a re-index found created, changed or deleted on disk
+/// ([`Database::on_file_changes`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileChange {
+    /// The file's path, as the index stores it.
+    pub path: String,
+    /// What happened to it.
+    pub kind: FileChangeKind,
+}
+
+/// A function [`Database::on_file_changes`] calls with each run's changes.
+type FileChangeListener = Arc<dyn Fn(&[FileChange]) + Send + Sync>;
+
 /// Main database interface
 pub struct Database {
     pool: connection::ConnectionPool,
     config: DatabaseConfig,
     /// The files this process re-indexed, and when ([`Self::reindexed_since`]).
     reindex_log: parking_lot::Mutex<reindex_log::ReindexLog>,
+    /// Who is told of the changes on disk each re-index finds
+    /// ([`Self::on_file_changes`]).
+    file_listeners: parking_lot::RwLock<Vec<FileChangeListener>>,
 }
 
 /// A re-index run in progress over a set of files: dropped after the run's
@@ -178,6 +207,7 @@ impl Database {
             pool,
             config,
             reindex_log: parking_lot::Mutex::default(),
+            file_listeners: parking_lot::RwLock::default(),
         };
         db.initialize()?;
 
@@ -208,6 +238,7 @@ impl Database {
         }
 
         schema::create_tables(&conn)?;
+        schema::add_missing_columns(&conn)?;
         schema::record_schema_version(&conn)?;
         let dropped = schema::align_embedding_space(&conn, crate::embeddings::EMBEDDING_SPACE)?;
         if dropped > 0 {
@@ -247,6 +278,27 @@ impl Database {
         ReindexGuard {
             database: self,
             paths,
+        }
+    }
+
+    /// Call `listener` with the files each re-index run of this process finds
+    /// created, changed or deleted on disk, once the run knows them and before
+    /// it writes them: what a process that keeps its own view of the files,
+    /// such as a language server, needs to hear. Runs of other processes are
+    /// not seen. `listener` runs on the re-indexing task, so it must return
+    /// quickly.
+    pub fn on_file_changes(&self, listener: impl Fn(&[FileChange]) + Send + Sync + 'static) {
+        self.file_listeners.write().push(Arc::new(listener));
+    }
+
+    /// Tell the [`Self::on_file_changes`] listeners about `changes`.
+    pub(crate) fn announce_file_changes(&self, changes: &[FileChange]) {
+        if changes.is_empty() {
+            return;
+        }
+        let listeners: Vec<FileChangeListener> = self.file_listeners.read().clone();
+        for listener in listeners {
+            listener(changes);
         }
     }
 
@@ -422,32 +474,12 @@ impl Database {
         operations::load_scan_manifest(&self.pool).await
     }
 
-    /// Upsert a single scan_manifest row.
-    pub async fn upsert_scan_manifest(
-        &self,
-        path: &str,
-        content_hash: &str,
-        last_parsed_at: &str,
-        size_bytes: u64,
-        mtime_secs: u64,
-    ) -> Result<()> {
-        operations::upsert_scan_manifest(
-            &self.pool,
-            path,
-            content_hash,
-            last_parsed_at,
-            size_bytes,
-            mtime_secs,
-        )
-        .await
-    }
-
-    /// Upsert multiple scan_manifest rows in one transaction.
+    /// Upsert scan_manifest rows in one transaction.
     pub async fn batch_upsert_scan_manifest(
         &self,
-        entries: Vec<(String, String, String, u64, u64)>,
+        rows: Vec<operations::ManifestRow>,
     ) -> Result<()> {
-        operations::batch_upsert_scan_manifest(&self.pool, entries).await
+        operations::batch_upsert_scan_manifest(&self.pool, rows).await
     }
 
     /// The manifest rows of `paths` (those it has): what the last scan saw of

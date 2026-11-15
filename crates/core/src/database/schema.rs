@@ -196,13 +196,17 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
 
         -- Scan manifest table (for incremental scan support).
         -- size_bytes + mtime_secs enable a cheap fast-path: only hash/re-parse
-        -- when size or mtime changed since the last scan.
+        -- when size or mtime changed since the last scan. read_at_ms says when
+        -- the file was read: a row read within seconds of the file's mtime
+        -- does not vouch for it, and its file is hashed again
+        -- (`operations::settled`).
         CREATE TABLE IF NOT EXISTS scan_manifest (
             path TEXT PRIMARY KEY,
             content_hash TEXT NOT NULL,
             last_parsed_at TEXT NOT NULL,
             size_bytes INTEGER NOT NULL DEFAULT 0,
-            mtime_secs INTEGER NOT NULL DEFAULT 0
+            mtime_secs INTEGER NOT NULL DEFAULT 0,
+            read_at_ms INTEGER NOT NULL DEFAULT 0
         );
 
         -- No extra index needed: path is the PRIMARY KEY of scan_manifest.
@@ -230,6 +234,33 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
         "#,
     )?;
 
+    Ok(())
+}
+
+/// Columns of the index's tables that a database of the same schema version
+/// may lack, having been written before the column was added: `(table,
+/// column, definition)`. Its rows take the column's default.
+const ADDED_COLUMNS: &[(&str, &str, &str)] =
+    &[("scan_manifest", "read_at_ms", "INTEGER NOT NULL DEFAULT 0")];
+
+/// Add each of [`ADDED_COLUMNS`] its table lacks, keeping its rows: run after
+/// [`create_tables`].
+///
+/// # Errors
+/// Returns an error if a statement fails.
+pub fn add_missing_columns(conn: &Connection) -> Result<()> {
+    for (table, column, definition) in ADDED_COLUMNS {
+        let present: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2)",
+            [table, column],
+            |row| row.get(0),
+        )?;
+        if !present {
+            conn.execute_batch(&format!(
+                "ALTER TABLE {table} ADD COLUMN {column} {definition}"
+            ))?;
+        }
+    }
     Ok(())
 }
 

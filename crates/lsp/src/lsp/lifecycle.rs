@@ -545,6 +545,17 @@ fn client_capabilities() -> lsp_types::ClientCapabilities {
             }),
             ..Default::default()
         }),
+        // Devscriptor tells each server of the files created, changed or
+        // deleted under its folders (`Translator::note_disk_changes`), without
+        // patterns of the server's: a server that would rather watch them
+        // itself does.
+        workspace: Some(lsp_types::WorkspaceClientCapabilities {
+            did_change_watched_files: Some(lsp_types::DidChangeWatchedFilesClientCapabilities {
+                dynamic_registration: Some(false),
+                relative_pattern_support: Some(false),
+            }),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }

@@ -18,7 +18,7 @@ use devscriptor_core::pipeline::{CodebasePipeline, PipelineConfig, ScanScope};
 
 use crate::project::{ProjectSettings, Refresh};
 use devscriptor_core::search::CodebaseSearcher;
-use devscriptor_core::watcher::{CodeWatcher, WatchConfig, WatchState};
+use devscriptor_core::watcher::{CodeWatcher, WatchConfig, WatchMode, WatchState};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 use tracing::{error, info};
@@ -627,6 +627,86 @@ impl DevscriptorServerState {
             response["embed_skipped"] = serde_json::Value::String(reason);
         }
         Ok(response)
+    }
+
+    /// Wait for the server's watcher, if one runs, to re-index the changes it
+    /// has seen: at most its debounce and
+    /// [`WATCH_SETTLE_MARGIN`](crate::freshness::WATCH_SETTLE_MARGIN). `true`
+    /// once it has, or when nothing is watched; `false` when the wait ran out.
+    pub async fn settle_watcher(&self) -> bool {
+        let watch = {
+            let guard = self.code_watcher.lock();
+            guard
+                .as_ref()
+                .filter(|handle| !handle.task.is_finished())
+                .map(|handle| (Arc::clone(&handle.watch), handle.debounce_ms))
+        };
+        match watch {
+            Some((watch, debounce_ms)) => {
+                let limit = std::time::Duration::from_millis(debounce_ms)
+                    + crate::freshness::WATCH_SETTLE_MARGIN;
+                watch.settle(limit).await
+            }
+            None => true,
+        }
+    }
+
+    /// Bring the scanned roots that `scope` touches — that hold it or lie in
+    /// it; every root with `None` — up to date with the disk, each with an
+    /// incremental scan, but for those a watcher on native events keeps
+    /// current: what an analysis of the whole index needs, as its findings
+    /// depend on files it does not name. A root that is not a directory now
+    /// is left as the index holds it. A scan that fails is logged.
+    pub async fn reconcile_unwatched(&self, scope: Option<&Path>) {
+        let roots = match self.database.indexed_roots().await {
+            Ok(roots) => roots,
+            Err(e) => {
+                tracing::warn!(
+                    "Not bringing the index up to date: the scanned roots could not be read: {e}"
+                );
+                return;
+            }
+        };
+        let watched = {
+            let guard = self.code_watcher.lock();
+            guard
+                .as_ref()
+                .filter(|handle| {
+                    !handle.task.is_finished() && handle.watch.mode() == WatchMode::Events
+                })
+                .map(|handle| handle.root.clone())
+        };
+        let mut chosen: Vec<PathBuf> = Vec::new();
+        let mut candidates: Vec<PathBuf> = roots
+            .into_iter()
+            .filter(|root| scope.is_none_or(|dir| dir.starts_with(root) || root.starts_with(dir)))
+            .collect();
+        // Outer roots first: a root inside one chosen is scanned with it.
+        candidates.sort_by_key(|root| root.components().count());
+        for root in candidates {
+            let covered = chosen.iter().any(|outer| root.starts_with(outer))
+                || watched
+                    .as_ref()
+                    .is_some_and(|watched| root.starts_with(watched));
+            if !covered && root.is_dir() {
+                chosen.push(root);
+            }
+        }
+        if chosen.is_empty() {
+            return;
+        }
+        let pipeline = match self.structural_pipeline().await {
+            Ok(pipeline) => pipeline,
+            Err(e) => {
+                tracing::warn!("Not bringing the index up to date: {e}");
+                return;
+            }
+        };
+        for root in chosen {
+            if let Err(e) = pipeline.analyze_directory(&root).await {
+                tracing::warn!("Bringing {} up to date failed: {e}", root.display());
+            }
+        }
     }
 
     /// Stop the real-time code watcher if one is running.

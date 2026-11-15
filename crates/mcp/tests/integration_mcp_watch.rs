@@ -253,3 +253,75 @@ async fn context_note_entity_links_round_trip() {
         "linked note should be retrievable by entity type: {text}"
     );
 }
+
+/// An answer read right after an edit waits for the watcher to re-index what
+/// it has seen: a function a new file defines is found, though the answer
+/// could not name the file before it was indexed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_answer_waits_for_the_watcher() {
+    let (module, temp) = setup();
+    let proj = temp.path().join("proj");
+    std::fs::create_dir_all(proj.join("src")).unwrap();
+    std::fs::write(proj.join("src/main.rs"), "fn existing_fn() {}\n").unwrap();
+    success(
+        module
+            .handle_tool(
+                "start_watching",
+                Some(json!({"path": proj.to_string_lossy(), "debounce_ms": 400})),
+            )
+            .await,
+    );
+
+    std::fs::write(proj.join("src/added.rs"), "fn added_while_watching() {}\n").unwrap();
+    // The change reaches the watcher at once; its re-index waits out the debounce.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let found = success(
+        module
+            .handle_tool(
+                "search_functions",
+                Some(json!({"query": "added_while_watching", "limit": 5})),
+            )
+            .await,
+    );
+    assert_eq!(found["returned"], json!(1), "{found}");
+    assert!(found.get("reindex_pending").is_none(), "{found}");
+    success(module.handle_tool("stop_watching", None).await);
+}
+
+/// The analyses of the whole index answer from the files as they are: right
+/// after a branch switch deletes a function and adds another, dead code is
+/// that of the new branch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn whole_index_analyses_follow_a_switch() {
+    let (module, temp) = setup();
+    let proj = temp.path().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(proj.join("geo.py"), "def legacy():\n    return 3\n").unwrap();
+    success(
+        module
+            .handle_tool(
+                "start_watching",
+                Some(json!({"path": proj.to_string_lossy(), "debounce_ms": 400})),
+            )
+            .await,
+    );
+
+    // The switch: one file rewritten, one added.
+    std::fs::write(proj.join("geo.py"), "def helper():\n    return 1\n").unwrap();
+    std::fs::write(proj.join("extra.py"), "def extra_fn():\n    return 2\n").unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let dead = success(
+        module
+            .handle_tool("find_dead_code", Some(json!({"min_confidence": 0.0})))
+            .await,
+    );
+    let mut names: Vec<&str> = dead["unused_functions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| finding["name"].as_str().unwrap())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, ["extra_fn", "helper"], "{dead}");
+    success(module.handle_tool("stop_watching", None).await);
+}

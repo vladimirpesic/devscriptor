@@ -41,7 +41,7 @@ pub mod mcp;
 pub mod user_dirs;
 
 #[cfg(feature = "lsp")]
-pub use bridge::Translator;
+pub use bridge::{DiskChange, Translator};
 #[cfg(feature = "lsp")]
 pub use config::{Config, LspServerConfig, ServerHeuristics, WorkspaceConfig};
 #[cfg(feature = "lsp")]

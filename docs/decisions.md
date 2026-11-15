@@ -167,22 +167,41 @@ scan of it, does once a scan has indexed it; `--no-watch` and
 scan reads, polls where native events cannot be had, and re-indexes the changed
 paths with `reindex_paths` instead of scanning the tree.
 
-The query tools, and the `name` resolution of the LSP position tools, compare the
-files of their answer with the scan manifest. They re-index those that changed, at
-most 20, waiting at most `DEVSCRIPTOR_FRESHNESS_BUDGET_MS` (250 ms), and run the
-query again if any were. The answer names the files refreshed for it
-(`refreshed_files`) and those it may be older than (`stale_files`).
+Every answer read from the index — the query tools, the analyses of the whole
+index, the `name` resolution of the LSP position tools and the calls and uses the
+index adds to an LSP answer — first waits for the watcher to re-index the changes
+it has seen, at most its debounce and 5 s, and says so (`reindex_pending`) when it
+did not. It then compares the files of its answer with the scan manifest,
+re-indexes those that changed, at most 20, waiting at most
+`DEVSCRIPTOR_FRESHNESS_BUDGET_MS` (250 ms), and runs the query again if any were.
+The answer names the files refreshed for it (`refreshed_files`) and those it may
+be older than (`stale_files`). An analysis of the whole index first scans,
+incrementally, each scanned root in its scope that no watcher on native events
+keeps current: a function is dead or alive by calls in files the findings do not
+name. The LSP tools wait for the watcher too, and the
+language servers hear of each change a re-index finds (`workspace/didChangeWatchedFiles`),
+so a server answers from the files as they are.
+
+A file's size and modification time stand for its content only when it was read
+at least 3 s after its last write (`database::operations::settled`): a write in
+the same second, at the same size, would leave both as the index recorded them.
+A file read sooner is hashed before it counts as unchanged, and the watcher
+re-indexes it once more when the 3 s have passed.
 
 **Why:** an agent that edits files and then searches must see its edits, and
 agents rarely ask for a watch: without one, sub-agents read the code back from
 search previews as it was before the edit. A watcher alone does not close the
 gap: an answer can come within its debounce, before its re-index finishes, while
-it polls, after it failed, or with `--no-watch`. The per-answer check covers those
-cases, and when nothing changed it costs one manifest lookup and a `stat` per
-file. A recursive watch would spend a watch on every directory of the tree,
-`target/` and `node_modules/` included, and run out of inotify watches where
-editors hold most of them; watching only what a scan reads, and polling at the
-limit, keeps the watch working there.
+it polls, after it failed, or with `--no-watch`. Waiting for the watcher covers a
+change in a file the answer does not name, such as a new caller, and the
+per-answer check covers the rest; when nothing changed they cost a counter read,
+one manifest lookup and a `stat` per file. Two `git checkout`s a fraction of a
+second apart rewrite a file twice within one second, at the same size when its
+branches differ in a few characters: size and time alone would keep the first
+version in the index. A recursive watch would spend a watch on every directory of
+the tree, `target/` and `node_modules/` included, and run out of inotify watches
+where editors hold most of them; watching only what a scan reads, and polling at
+the limit, keeps the watch working there.
 
 ### The scan manifest is written on every scan
 

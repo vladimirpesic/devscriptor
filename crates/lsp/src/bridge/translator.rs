@@ -11,6 +11,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use crate::bridge::ClientRegistry;
+use crate::bridge::disk_changes::{DiskChange, DiskChangeLog};
 use crate::config::{Config, LspServerConfig, StartupMode};
 use crate::error::{LspError, Result};
 use crate::lsp::client::LspClient;
@@ -85,6 +86,9 @@ pub struct Translator {
     /// Why each stopped language's server is down, until it starts again.
     /// A stopped language without an entry was never started.
     stop_reasons: Arc<parking_lot::Mutex<HashMap<String, StopReason>>>,
+    /// The changes on disk each running server has yet to hear of
+    /// ([`Self::note_disk_changes`]).
+    disk_changes: Arc<parking_lot::Mutex<DiskChangeLog>>,
 }
 
 /// Why a language's server stopped, as `get_server_status` reports it
@@ -118,10 +122,59 @@ impl StopReason {
 struct OpenDocument {
     /// LSP document version, incremented on every `didChange`.
     version: i32,
-    /// Modification time of the file when it was last sent to the server.
-    mtime: Option<std::time::SystemTime>,
+    /// The file's modification time and size when it was last read for the
+    /// server.
+    stamp: Option<DiskStamp>,
+    /// A hash of the text last sent ([`text_hash`]).
+    hash: u64,
+    /// When the file was last read for the server: a time taken before the
+    /// read.
+    read_at: std::time::SystemTime,
     /// When a request last used it, as a tick of [`Translator::ticks`].
     last_used: u64,
+}
+
+/// A file's modification time and size.
+type DiskStamp = (std::time::SystemTime, u64);
+
+/// How long after a file's modification time another write can still leave
+/// it with the same modification time and size: file systems step
+/// modification times by up to two seconds (FAT; most by far less). A document
+/// read within this long of its file's modification time is read again to
+/// tell whether it changed.
+const RACY_WINDOW: std::time::Duration = std::time::Duration::from_secs(3);
+
+impl OpenDocument {
+    /// Whether the file, by its modification time and size alone, is still
+    /// the version last sent: the same stamp, read [`RACY_WINDOW`] or more
+    /// after its modification time.
+    fn current_by(&self, stamp: Option<DiskStamp>) -> bool {
+        match (self.stamp, stamp) {
+            (Some(sent), Some(on_disk)) if sent == on_disk => self
+                .read_at
+                .duration_since(sent.0)
+                .is_ok_and(|after| after >= RACY_WINDOW),
+            _ => false,
+        }
+    }
+}
+
+/// The modification time and size of the file at `path`; `None` when it is
+/// not a file.
+async fn disk_stamp(path: &Path) -> Option<DiskStamp> {
+    let metadata = tokio::fs::metadata(path).await.ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    Some((metadata.modified().ok()?, metadata.len()))
+}
+
+/// A hash of `text`, to tell whether a file read again holds what was sent.
+fn text_hash(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// How many documents each language server is kept holding open. A long agent
@@ -198,6 +251,18 @@ impl Translator {
             start_errors: Arc::new(RwLock::new(HashMap::new())),
             restarts: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             stop_reasons: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            disk_changes: Arc::new(parking_lot::Mutex::new(DiskChangeLog::default())),
+        }
+    }
+
+    /// Note files created, changed or deleted on disk, which the running
+    /// servers whose folders hold them have yet to hear of: each is told
+    /// (`workspace/didChangeWatchedFiles`) before its next request. Servers
+    /// started later read the files as they are.
+    pub fn note_disk_changes(&self, changes: impl IntoIterator<Item = (PathBuf, DiskChange)>) {
+        let mut log = self.disk_changes.lock();
+        for (path, change) in changes {
+            log.note(path.to_string_lossy().into_owned(), change);
         }
     }
 
@@ -552,6 +617,7 @@ impl Translator {
         self.clients.clear();
         self.server_folders.write().await.clear();
         self.open_documents.write().await.clear();
+        self.disk_changes.lock().clear();
         for (language_id, server) in servers {
             if let Err(e) = server.shutdown().await {
                 warn!("LSP server '{language_id}' shutdown error: {e}");
@@ -894,8 +960,10 @@ impl Translator {
             .write()
             .await
             .insert(language_id.to_string(), folders);
-        // The server now running was sent none of the documents.
+        // The server now running was sent none of the documents, and reads
+        // the files as they are now.
         self.forget_documents(language_id).await;
+        self.disk_changes.lock().started(language_id);
         if let Some(replaced) = replaced {
             let language_id = language_id.to_string();
             tokio::spawn(async move {
@@ -912,15 +980,107 @@ impl Translator {
         Ok(client)
     }
 
-    /// Forget which documents were sent to `language_id`'s server, so that the
-    /// next request for each sends it to the server running then. Remembered
-    /// across a restart, they would never reach the new server, which would fail
-    /// every request for them.
+    /// Forget which documents were sent to `language_id`'s server, and which
+    /// changes on disk it heard of, so that the next request for each
+    /// document sends it to the server running then. Remembered across a
+    /// restart, they would never reach the new server, which would fail every
+    /// request for them.
     async fn forget_documents(&self, language_id: &str) {
         self.open_documents
             .write()
             .await
             .retain(|path, _| self.get_language_id(Path::new(path)) != language_id);
+        self.disk_changes.lock().stopped(language_id);
+    }
+
+    /// Bring `language_id`'s server up to date with the disk before a
+    /// request: send the documents it holds open that changed on disk again,
+    /// close those deleted, and tell it of the files created, changed or
+    /// deleted under its folders since it last heard
+    /// (`workspace/didChangeWatchedFiles`). A server holding a document open
+    /// answers from the text it was sent, and one that was not told of a
+    /// change from the version it read, so either would answer about code
+    /// that is gone. Returns whether the server was told anything.
+    async fn sync_with_disk(&self, client: &LspClient, language_id: &str) -> Result<bool> {
+        let open: Vec<String> = self
+            .open_documents
+            .read()
+            .await
+            .keys()
+            .filter(|path| self.get_language_id(Path::new(path)) == language_id)
+            .cloned()
+            .collect();
+        let mut told = false;
+        for path in &open {
+            if disk_stamp(Path::new(path)).await.is_none() {
+                told |= self.close_document(client, path).await;
+            } else {
+                told |= self.send_document(client, Path::new(path), None).await?;
+            }
+        }
+
+        let folders = self
+            .server_folders
+            .read()
+            .await
+            .get(language_id)
+            .cloned()
+            .unwrap_or_default();
+        let pending = self.disk_changes.lock().take(language_id, |path| {
+            folders
+                .iter()
+                .any(|folder| Path::new(path).starts_with(folder))
+        });
+        let still_open = self.open_documents.read().await;
+        // A document held open is the client's to tell of: sent above.
+        let changes: Vec<lsp_types::FileEvent> = pending
+            .into_iter()
+            .filter(|(path, _)| !still_open.contains_key(path))
+            .filter_map(|(path, change)| {
+                Some(lsp_types::FileEvent {
+                    uri: path_to_uri(Path::new(&path)).ok()?,
+                    typ: change.file_change_type(),
+                })
+            })
+            .collect();
+        drop(still_open);
+        if !changes.is_empty() {
+            client
+                .notify(
+                    "workspace/didChangeWatchedFiles",
+                    lsp_types::DidChangeWatchedFilesParams { changes },
+                )
+                .await
+                .map_err(|e| LspError::Io(format!("didChangeWatchedFiles failed: {e}")))?;
+            told = true;
+        }
+        Ok(told)
+    }
+
+    /// [`Self::sync_with_disk`] before a request that names no file, then let
+    /// the server digest what it was told.
+    async fn sync_for_request(&self, client: &LspClient, language_id: &str) -> Result<()> {
+        if self.sync_with_disk(client, language_id).await? {
+            client.wait_until_ready().await;
+        }
+        Ok(())
+    }
+
+    /// Close the open document at `key` in `client`'s server: its file is
+    /// gone. Returns whether it was open.
+    async fn close_document(&self, client: &LspClient, key: &str) -> bool {
+        if self.open_documents.write().await.remove(key).is_none() {
+            return false;
+        }
+        if let Ok(uri) = path_to_uri(Path::new(key)) {
+            let params = lsp_types::DidCloseTextDocumentParams {
+                text_document: lsp_types::TextDocumentIdentifier { uri },
+            };
+            if let Err(e) = client.notify("textDocument/didClose", params).await {
+                warn!("didClose for {key} failed: {e}");
+            }
+        }
+        true
     }
 
     /// Make the running `language_id` server cover `file_path`'s project.
@@ -1101,11 +1261,13 @@ impl Translator {
         // follows holds the client in use itself.
         let _in_use = client.in_use();
 
-        // Opening or refreshing a document makes the server (re)analyse it. Let
-        // that settle, otherwise a semantic request races the analysis and comes
-        // back empty — indistinguishable, to an agent, from "no such symbol".
+        // Opening or refreshing a document makes the server (re)analyse it, and
+        // so does hearing of changes on disk. Let that settle, otherwise a
+        // semantic request races the analysis and comes back empty —
+        // indistinguishable, to an agent, from "no such symbol".
+        let synced = self.sync_with_disk(&client, language_id).await?;
         let refreshed = self.ensure_document_open(&client, file_path).await?;
-        if refreshed {
+        if synced || refreshed {
             client.wait_until_ready().await;
         }
 
@@ -1169,41 +1331,64 @@ impl Translator {
     ///
     /// Servers answer position requests only for documents they know about, so
     /// this runs before every request rather than only before diagnostics. The
-    /// on-disk mtime is tracked so an agent that edits a file and immediately asks
-    /// for hover or diagnostics sees its own change, not the version cached when
-    /// the document was first opened.
+    /// file's modification time and size are tracked so an agent that edits a
+    /// file and immediately asks for hover or diagnostics sees its own change,
+    /// not the version cached when the document was first opened.
     /// Returns `true` if a `didOpen` or `didChange` was sent (i.e. the server
     /// now has fresh work to do), `false` if the document was already current.
     async fn ensure_document_open(&self, client: &LspClient, file_path: &Path) -> Result<bool> {
-        let uri = path_to_uri(file_path)?;
-        let key = uri_to_path(&uri);
-
-        let mtime = tokio::fs::metadata(file_path)
-            .await
-            .ok()
-            .and_then(|m| m.modified().ok());
-
         let tick = self
             .ticks
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.send_document(client, file_path, Some(tick)).await
+    }
+
+    /// Send `file_path` to `client` as it is on disk, unless the server holds
+    /// that already: opened, or changed when it holds an older text. A
+    /// document whose modification time and size match what was sent, read
+    /// within [`RACY_WINDOW`] of that time, is read again and compared by
+    /// content. `tick` marks the document used; `None` leaves its use as it
+    /// was, for a refresh no request asked for. Returns whether anything was
+    /// sent.
+    async fn send_document(
+        &self,
+        client: &LspClient,
+        file_path: &Path,
+        tick: Option<u64>,
+    ) -> Result<bool> {
+        let uri = path_to_uri(file_path)?;
+        let key = uri_to_path(&uri);
+        let stamp = disk_stamp(file_path).await;
 
         // Fast path: already open and unchanged.
         if let Some(doc) = self.open_documents.write().await.get_mut(&key)
-            && doc.mtime == mtime
+            && doc.current_by(stamp)
         {
-            doc.last_used = tick;
+            if let Some(tick) = tick {
+                doc.last_used = tick;
+            }
             return Ok(false);
         }
 
+        let read_at = std::time::SystemTime::now();
         let text = tokio::fs::read_to_string(file_path)
             .await
             .map_err(|e| LspError::Io(format!("Failed to read {}: {e}", file_path.display())))?;
+        let hash = text_hash(&text);
         let language_id = document_language_id(file_path, &self.get_language_id(file_path));
 
         let mut open = self.open_documents.write().await;
-        // Re-check: a concurrent caller may have opened it while we read the file.
-        match open.get(&key) {
-            Some(doc) if doc.mtime == mtime => return Ok(false),
+        // Re-check: a concurrent caller may have sent this text while we read
+        // the file, or the file may hold the text last sent.
+        match open.get_mut(&key) {
+            Some(doc) if doc.hash == hash => {
+                doc.stamp = stamp;
+                doc.read_at = read_at;
+                if let Some(tick) = tick {
+                    doc.last_used = tick;
+                }
+                return Ok(false);
+            }
             Some(doc) => {
                 let version = doc.version + 1;
                 let change = lsp_types::DidChangeTextDocumentParams {
@@ -1221,14 +1406,13 @@ impl Translator {
                     .notify("textDocument/didChange", change)
                     .await
                     .map_err(|e| LspError::Io(format!("didChange failed: {e}")))?;
-                open.insert(
-                    key,
-                    OpenDocument {
-                        version,
-                        mtime,
-                        last_used: tick,
-                    },
-                );
+                *doc = OpenDocument {
+                    version,
+                    stamp,
+                    hash,
+                    read_at,
+                    last_used: tick.unwrap_or(doc.last_used),
+                };
             }
             None => {
                 let params = lsp_types::DidOpenTextDocumentParams {
@@ -1244,12 +1428,16 @@ impl Translator {
                     .await
                     .map_err(|e| LspError::Io(format!("didOpen failed: {e}")))?;
                 let language_id = self.get_language_id(file_path);
+                let last_used =
+                    tick.unwrap_or_else(|| self.ticks.load(std::sync::atomic::Ordering::Relaxed));
                 open.insert(
                     key.clone(),
                     OpenDocument {
                         version: 1,
-                        mtime,
-                        last_used: tick,
+                        stamp,
+                        hash,
+                        read_at,
+                        last_used,
                     },
                 );
                 let stale = documents_to_close(
@@ -1754,6 +1942,9 @@ impl Translator {
                 language_id: languages.join(", "),
                 feature: "workspace symbols".to_string(),
             });
+        }
+        for (language, client) in &asked {
+            self.sync_for_request(client, language).await?;
         }
 
         let answers = futures::future::join_all(asked.into_iter().map(|(language, client)| {
@@ -3410,6 +3601,7 @@ impl Translator {
             });
         }
 
+        self.sync_for_request(&client, &language_id).await?;
         let lsp_params = lsp_types::WorkspaceSymbolParams {
             query: params.query,
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
@@ -4465,7 +4657,9 @@ mod tests {
     fn open_doc(last_used: u64) -> OpenDocument {
         OpenDocument {
             version: 1,
-            mtime: None,
+            stamp: None,
+            hash: 0,
+            read_at: std::time::SystemTime::UNIX_EPOCH,
             last_used,
         }
     }
