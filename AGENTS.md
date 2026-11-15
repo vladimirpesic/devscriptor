@@ -41,12 +41,12 @@ ignored suites.
 | Component | Crate | Version |
 | --- | --- | --- |
 | Parsing | `tree-sitter` and one `tree-sitter-*` crate per grammar | 0.27 (26 grammar crates, 27 parsers) |
-| Database | `rusqlite`, with SQLite bundled | 0.40 |
+| Database | `rusqlite`, with SQLite bundled | 0.41 |
 | Vector search | `sqlite-vec` | 0.1 |
 | Embeddings | `tract-onnx`, pure-Rust ONNX inference | 0.23 |
 | Matrix threads | `tract-linalg` with `multithread-mm` (rayon) | 0.23 |
 | Async runtime | `tokio` | 1 |
-| MCP protocol | `rmcp` | 3.5 |
+| MCP protocol | `rmcp` | 3.9 |
 | File watching | `notify` | 8 |
 | CLI | `clap` | 4 |
 | Serialization | `serde` | 1 |

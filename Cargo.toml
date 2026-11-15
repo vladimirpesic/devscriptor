@@ -9,9 +9,6 @@ rust-version = "1.95"
 authors = ["Vladimir Pesic"]
 license = "GPL-3.0-only"
 repository = "https://github.com/vladimirpesic/devscriptor"
-readme = "README.md"
-keywords = ["code-analysis", "static-analysis", "developer-tools", "lsp", "mcp"]
-categories = ["development-tools", "command-line-utilities", "parsing"]
 
 [workspace.dependencies]
 # Core parsing - individual tree-sitter language crates

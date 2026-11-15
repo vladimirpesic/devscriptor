@@ -99,8 +99,8 @@ anyhow = { workspace = true }
 # CLI interop (ValueEnum support — zero runtime cost when unused)
 clap = { workspace = true }
 
-# Cryptography
-sha2 = { workspace = true }
+# Hashing: SHA-256 verifies downloaded model files, XXH3 tells changed files
+sha2 = { workspace = true, optional = true }
 xxhash-rust = { workspace = true }
 
 # System
@@ -110,7 +110,7 @@ libc = { workspace = true }
 
 [features]
 default = ["full-lang"]
-model-download = ["dep:reqwest", "dep:rustls", "dep:webpki-roots", "dep:indicatif", "dep:hex"]
+model-download = ["dep:reqwest", "dep:rustls", "dep:webpki-roots", "dep:indicatif", "dep:hex", "dep:sha2"]
 slow-tests = []
 
 # Individual language features

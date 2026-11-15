@@ -22,8 +22,9 @@ required-features = ["rmcp-sdk"]
 
 [features]
 default = ["rmcp-sdk", "devscriptor-core/full-lang", "devscriptor-core/model-download"]
-rmcp-sdk = ["dep:rmcp"]
-lsp = ["dep:devscriptor-lsp", "rmcp-sdk"]
+rmcp-sdk = ["dep:rmcp", "dep:tracing-subscriber"]
+# The daemon (`devscriptor serve`) comes with it, and the crates it needs.
+lsp = ["dep:devscriptor-lsp", "rmcp-sdk", "dep:sha2", "dep:hex", "dep:nix", "dep:windows-sys"]
 slow-tests = []
 
 [dependencies]
@@ -31,7 +32,8 @@ devscriptor-core = { path = "../core", default-features = false }
 # `net`: the socket `devscriptor serve` listens on, one MCP session per connection.
 tokio = { workspace = true, features = ["net"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+# The logs of the standalone binary and of the daemon.
+tracing-subscriber = { workspace = true, optional = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -41,8 +43,9 @@ dunce = { workspace = true }
 futures = { workspace = true }
 similar = { workspace = true }
 parking_lot = { workspace = true }
-sha2 = { workspace = true }
-hex = { workspace = true }
+# The daemon's endpoint key: a hash of its database and workspace.
+sha2 = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
 
 # rmcp SDK dependencies
 rmcp = { workspace = true, features = ["transport-io"], optional = true }
@@ -53,14 +56,15 @@ devscriptor-lsp = { path = "../lsp", optional = true }
 [target.'cfg(unix)'.dependencies]
 # `user`: the daemon serves only sessions of the user it runs as; `signal`: a
 # client stops a daemon of another version.
-nix = { workspace = true, features = ["user", "signal"] }
+nix = { workspace = true, features = ["user", "signal"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # Which process serves a pipe, and which file a handle is: a client connects
 # only to its user's daemon, and the daemon's lock is the file at its path.
 # tokio's `net` enables these features already.
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Pipes"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Pipes"], optional = true }
 
 [dev-dependencies]
 rusqlite = { workspace = true }
+tracing-subscriber = { workspace = true }
 tempfile = { workspace = true }
