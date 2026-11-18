@@ -271,8 +271,11 @@ graph current, and `start_watching` says why in `embed_skipped`.
   scan, rather than editing the database per event, so deletion and rename
   reconciliation and cross-file relationship updates are handled by the same
   tested code path as `scan`.
-- A single failed re-index (e.g. a transient parse error) is logged and does not
-  tear down the watcher; the next change triggers another attempt.
+- A re-index that fails (the index held by another writer for longer than a
+  write waits, say) is logged and does not end the watch: it is tried again 2 s
+  later, then twice as long after each failure in a row, up to a minute apart,
+  until it succeeds. Meanwhile an answer waits for it as for any change the
+  watcher has seen.
 - Changes that land **during** a re-index trigger the next one, so nothing is
   missed.
 - The watcher counts the changes it has been told of and those it has

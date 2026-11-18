@@ -158,7 +158,18 @@ impl WatchState {
     /// [`Self::settle`]: counted first, so that a wait that begins once it is
     /// sent waits for it too.
     fn send(&self, tx: &mpsc::UnboundedSender<Signal>, signal: Signal) {
+        self.reserve();
+        self.send_reserved(tx, signal);
+    }
+
+    /// Count a signal that will be sent later ([`Self::send_reserved`]): a
+    /// wait that begins meanwhile waits for it too.
+    fn reserve(&self) {
         self.received.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Send `signal`, which [`Self::reserve`] counted.
+    fn send_reserved(&self, tx: &mpsc::UnboundedSender<Signal>, signal: Signal) {
         // An error only means the session is gone: nothing will handle it.
         if tx.send(signal).is_err() {
             self.received.fetch_sub(1, Ordering::SeqCst);
@@ -291,6 +302,7 @@ impl CodeWatcher {
             config: self.config.clone(),
             watched: HashSet::new(),
             state,
+            failures: 0,
         };
         let directories = session.scanned_directories(&self.root).ok_or_else(|| {
             Error::Watcher(format!(
@@ -442,6 +454,22 @@ fn is_limit_io(_error: &std::io::Error) -> bool {
     false
 }
 
+/// How long the session waits before it tries a failed re-index again, the
+/// first time; each failure in a row doubles it, up to [`RETRY_LIMIT`].
+const RETRY_FIRST: Duration = Duration::from_secs(2);
+
+/// The longest wait before a failed re-index is tried again.
+const RETRY_LIMIT: Duration = Duration::from_secs(60);
+
+/// How long to wait before the `failures`-th failed re-index in a row is
+/// tried again: [`RETRY_FIRST`], doubled with each earlier failure, at most
+/// [`RETRY_LIMIT`].
+fn retry_delay(failures: u32) -> Duration {
+    RETRY_FIRST
+        .saturating_mul(1 << failures.saturating_sub(1).min(16))
+        .min(RETRY_LIMIT)
+}
+
 /// Signals gathered during one debounce window.
 #[derive(Default)]
 struct Batch {
@@ -492,6 +520,8 @@ pub struct WatchSession {
     config: WatchConfig,
     watched: HashSet<PathBuf>,
     state: Arc<WatchState>,
+    /// Re-indexes that failed in a row, for [`retry_delay`].
+    failures: u32,
 }
 
 impl WatchSession {
@@ -609,19 +639,18 @@ impl WatchSession {
             }
 
             let only_rechecks = batch.only_rechecks();
-            let outcome = match batch.rescan {
+            let paths: Vec<PathBuf> = batch.paths.union(&batch.rechecks).cloned().collect();
+            let outcome = match &batch.rescan {
                 Some(reason) => {
                     tracing::info!("Re-scanning {}: {reason}", self.root.display());
                     Some(self.pipeline.analyze_directory(&self.root).await)
                 }
-                None if batch.paths.is_empty() && batch.rechecks.is_empty() => None,
-                None => {
-                    let paths: Vec<PathBuf> = batch.paths.union(&batch.rechecks).cloned().collect();
-                    Some(self.pipeline.reindex_paths(&self.root, &paths).await)
-                }
+                None if paths.is_empty() => None,
+                None => Some(self.pipeline.reindex_paths(&self.root, &paths).await),
             };
             match outcome {
                 Some(Ok(result)) => {
+                    self.failures = 0;
                     self.recheck_later(result.unsettled.clone());
                     let found_nothing = result.files_parsed == 0 && result.files_removed == 0;
                     if !(only_rechecks && found_nothing) {
@@ -637,9 +666,23 @@ impl WatchSession {
                     }
                 }
                 Some(Err(e)) => {
-                    // A single failed re-index should not tear down the watcher;
-                    // the next change will trigger another attempt.
-                    tracing::error!("watch re-index failed: {e}");
+                    // A failed re-index does not end the watch: it is tried
+                    // again, later, until it succeeds. Its files stay out of
+                    // date meanwhile, and an answer waits for them.
+                    self.failures += 1;
+                    let delay = retry_delay(self.failures);
+                    tracing::error!(
+                        "watch re-index failed: {e}; trying again in {} s",
+                        delay.as_secs()
+                    );
+                    let again = match batch.rescan {
+                        Some(reason) => Signal::Rescan(reason),
+                        None => Signal::Changed {
+                            paths,
+                            created_dirs: Vec::new(),
+                        },
+                    };
+                    self.retry_later(again, delay);
                 }
                 None => {}
             }
@@ -649,6 +692,19 @@ impl WatchSession {
             // missed. Our own writes go only to the DB, which `changes`
             // filters out, so there is no self-retrigger.
         }
+    }
+
+    /// Send `signal`, the work of a re-index that failed, `delay` from now. It
+    /// counts as sent at once, so that an answer that begins meanwhile waits
+    /// for it ([`WatchState::settle`]).
+    fn retry_later(&self, signal: Signal, delay: Duration) {
+        self.state.reserve();
+        let tx = self.tx.clone();
+        let state = Arc::clone(&self.state);
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            state.send_reserved(&tx, signal);
+        });
     }
 
     /// Re-index `files` once more [`RACY_WINDOW_MS`] from now, when their
@@ -711,6 +767,13 @@ fn has_ignored_component(root: &Path, path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_reindex_is_tried_again_ever_later() {
+        let delays: Vec<u64> = (1..=8).map(|n| retry_delay(n).as_secs()).collect();
+        assert_eq!(delays, [2, 4, 8, 16, 32, 60, 60, 60]);
+        assert_eq!(retry_delay(u32::MAX), RETRY_LIMIT);
+    }
 
     #[test]
     fn ignores_vcs_and_build_dirs() {

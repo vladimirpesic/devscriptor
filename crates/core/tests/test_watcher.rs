@@ -308,3 +308,38 @@ async fn a_second_look_that_finds_nothing_is_not_reported() {
     tokio::time::sleep(Duration::from_millis(RACY_WINDOW_MS) + Duration::from_secs(2)).await;
     assert!(watched.results.try_recv().is_err());
 }
+
+/// A re-index that fails is tried again until it succeeds: with the index
+/// locked by another writer for longer than a write waits for it (five
+/// attempts, each waiting out the 5 s busy timeout), the first attempt fails,
+/// and the file is indexed once the lock is gone, with no further change to
+/// it. A wait that begins meanwhile waits for the retry.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_reindex_is_tried_again() {
+    let watched = watched(WatchConfig {
+        debounce: Duration::from_millis(200),
+        poll_interval: Duration::from_millis(200),
+        ..WatchConfig::default()
+    })
+    .await;
+    // Another writer holds the index for longer than a write waits, about
+    // 26 s: the first attempt fails, and its retry, 2 s later, is still
+    // waiting when the lock goes.
+    let locker = rusqlite::Connection::open(&watched.db).expect("open the index");
+    locker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("take the write lock");
+    write(
+        &watched.root,
+        "src/late.py",
+        "def indexed_late():\n    return 1\n",
+    );
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    assert!(!indexed(&watched.db, "indexed_late"));
+    locker.execute_batch("ROLLBACK").expect("release the lock");
+    drop(locker);
+
+    // The failed attempt's retry is pending: a wait sees it through.
+    assert!(watched.state.settle(Duration::from_secs(20)).await);
+    assert!(indexed(&watched.db, "indexed_late"));
+}
