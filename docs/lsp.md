@@ -275,9 +275,10 @@ Devscriptor brings that view up to date with the disk:
   references in it.
 - **Other files.** Each re-index of the code index tells the running servers whose
   folders hold them of the files it found created, changed or deleted, with
-  `workspace/didChangeWatchedFiles` before the server's next request. Those are the
-  source files the index covers, under its scanned roots; changes indexed by
-  another process are not seen. The client declares the notification without
+  `workspace/didChangeWatchedFiles` before the server's next request, and so does
+  the watcher of the files it saw change, whoever re-indexes them: another process
+  that indexes the same database may do so first. Those are the source files the
+  index covers, under its scanned roots. The client declares the notification without
   dynamic registration, so it takes no patterns from the server, and a server that
   would rather watch files itself, such as rust-analyzer, still does.
 - **The watcher first.** The LSP tools of `devscriptor mcp` wait for its watcher to

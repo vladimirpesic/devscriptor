@@ -333,10 +333,11 @@ impl CodeWatcher {
 /// What the event handler tells the session.
 #[derive(Debug)]
 enum Signal {
-    /// Paths an event touched that may need re-indexing, and directories it
-    /// created (or moved into place).
+    /// Paths an event touched that may need re-indexing, those of them it
+    /// created, and directories it created (or moved into place).
     Changed {
         paths: Vec<PathBuf>,
+        created: Vec<PathBuf>,
         created_dirs: Vec<PathBuf>,
     },
     /// Events were lost or the watcher failed: only a full re-scan is safe.
@@ -428,8 +429,10 @@ fn changes(root: &Path, event: &notify::Event) -> Option<Signal> {
             paths.push(path.clone());
         }
     }
+    let created = if created { paths.clone() } else { Vec::new() };
     (!paths.is_empty() || !created_dirs.is_empty()).then_some(Signal::Changed {
         paths,
+        created,
         created_dirs,
     })
 }
@@ -476,6 +479,8 @@ struct Batch {
     /// How many signals it gathered.
     signals: u64,
     paths: HashSet<PathBuf>,
+    /// The paths that were created, as far as the events tell.
+    created: HashSet<PathBuf>,
     created_dirs: Vec<PathBuf>,
     rescan: Option<String>,
     /// Files only checked again ([`Signal::Recheck`]), not reported changed.
@@ -488,9 +493,11 @@ impl Batch {
         match signal {
             Signal::Changed {
                 paths,
+                created,
                 created_dirs,
             } => {
                 self.paths.extend(paths);
+                self.created.extend(created);
                 self.created_dirs.extend(created_dirs);
             }
             Signal::Rescan(reason) => {
@@ -634,9 +641,11 @@ impl WatchSession {
                     if let Err(e) = self.register(&dirs) {
                         batch.rescan.get_or_insert(e.to_string());
                     }
+                    batch.created.extend(files.iter().cloned());
                     batch.paths.extend(files);
                 }
             }
+            self.announce(&batch);
 
             let only_rechecks = batch.only_rechecks();
             let paths: Vec<PathBuf> = batch.paths.union(&batch.rechecks).cloned().collect();
@@ -679,6 +688,7 @@ impl WatchSession {
                         Some(reason) => Signal::Rescan(reason),
                         None => Signal::Changed {
                             paths,
+                            created: Vec::new(),
                             created_dirs: Vec::new(),
                         },
                     };
@@ -692,6 +702,41 @@ impl WatchSession {
             // missed. Our own writes go only to the DB, which `changes`
             // filters out, so there is no self-retrigger.
         }
+    }
+
+    /// Tell those who follow the database's changes on disk
+    /// ([`crate::database::Database::on_file_changes`]) of the files `batch`
+    /// saw created, changed or deleted, before they are re-indexed. Another
+    /// process that indexes the same database may re-index them first, and
+    /// this session's re-index then finds nothing changed; a language server
+    /// of this process still has to hear of them. The re-index tells of what
+    /// it finds too, and a listener takes the two together.
+    fn announce(&self, batch: &Batch) {
+        use crate::database::{FileChange, FileChangeKind};
+        let changes: Vec<FileChange> = batch
+            .paths
+            .iter()
+            .filter_map(|path| {
+                let kind = match std::fs::metadata(path) {
+                    Ok(meta) if meta.is_file() => {
+                        if batch.created.contains(path) {
+                            FileChangeKind::Created
+                        } else {
+                            FileChangeKind::Changed
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => FileChangeKind::Deleted,
+                    _ => return None,
+                };
+                Some(FileChange {
+                    path: crate::pipeline::as_stored(path)
+                        .to_string_lossy()
+                        .into_owned(),
+                    kind,
+                })
+            })
+            .collect();
+        self.pipeline.db().announce_file_changes(&changes);
     }
 
     /// Send `signal`, the work of a re-index that failed, `delay` from now. It

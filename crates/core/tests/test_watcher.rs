@@ -343,3 +343,65 @@ async fn a_failed_reindex_is_tried_again() {
     assert!(watched.state.settle(Duration::from_secs(20)).await);
     assert!(indexed(&watched.db, "indexed_late"));
 }
+
+/// A file another process re-indexed first is still announced to who follows
+/// this process's changes on disk, such as its language servers: the watch
+/// saw it change, though its own re-index then finds nothing new.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_change_another_process_indexed_first_is_announced() {
+    use devscriptor_core::database::{FileChange, FileChangeKind};
+
+    let tree = TempDir::new().expect("tempdir for the tree");
+    let root = dunce::canonicalize(tree.path()).expect("canonical root");
+    write(&root, "src/app.py", "def existing():\n    return 1\n");
+    let index = TempDir::new().expect("tempdir for the index");
+    let db = index.path().join("index.db");
+    let ours = pipeline(&db);
+    let theirs = pipeline(&db);
+    let heard: Arc<parking_lot::Mutex<Vec<FileChange>>> = Arc::default();
+    let listener = Arc::clone(&heard);
+    ours.db()
+        .on_file_changes(move |changes| listener.lock().extend_from_slice(changes));
+
+    let session = CodeWatcher::new(
+        root.clone(),
+        Arc::clone(&ours),
+        WatchConfig {
+            debounce: Duration::from_secs(2),
+            poll_interval: Duration::from_millis(200),
+            ..WatchConfig::default()
+        },
+    )
+    .start()
+    .expect("start watching");
+    ours.analyze_directory(&root).await.expect("prime");
+    let (tx, mut results) = mpsc::unbounded_channel();
+    let task = tokio::spawn(session.run(move |rescan| {
+        let _ = tx.send(rescan.result);
+    }));
+
+    let app = root.join("src/app.py");
+    std::fs::write(&app, "def edited_elsewhere():\n    return 2\n").expect("edit");
+    theirs
+        .reindex_paths(&root, std::slice::from_ref(&app))
+        .await
+        .expect("the other process's re-index");
+    assert!(indexed(&db, "edited_elsewhere"));
+    heard.lock().clear();
+
+    let result = tokio::time::timeout(Duration::from_secs(15), results.recv())
+        .await
+        .expect("a re-index")
+        .expect("a result");
+    task.abort();
+    assert_eq!(result.files_parsed, 0, "{result:?}");
+    let heard = heard.lock().clone();
+    assert_eq!(
+        heard,
+        [FileChange {
+            path: app.to_string_lossy().into_owned(),
+            kind: FileChangeKind::Changed,
+        }],
+        "{heard:?}"
+    );
+}

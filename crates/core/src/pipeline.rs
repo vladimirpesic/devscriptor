@@ -344,7 +344,7 @@ fn canonical_root(root: &Path) -> PathBuf {
 /// deleted, or of a symlink, which a scan lists by its own name. A path
 /// reached through a symlinked folder (a watcher's event, macOS's `/var`,
 /// which is `/private/var`) is then the file a scan of the folder stored.
-fn as_stored(path: &Path) -> PathBuf {
+pub(crate) fn as_stored(path: &Path) -> PathBuf {
     match (path.parent(), path.file_name()) {
         (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => dunce::canonicalize(parent)
             .unwrap_or_else(|_| as_stored(parent))

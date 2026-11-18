@@ -284,9 +284,11 @@ impl Database {
     /// Call `listener` with the files each re-index run of this process finds
     /// created, changed or deleted on disk, once the run knows them and before
     /// it writes them: what a process that keeps its own view of the files,
-    /// such as a language server, needs to hear. Runs of other processes are
-    /// not seen. `listener` runs on the re-indexing task, so it must return
-    /// quickly.
+    /// such as a language server, needs to hear. A watch session of this
+    /// process also tells of the files it saw change, before it re-indexes
+    /// them, so that one another process re-indexed first is heard of too;
+    /// a file can then come twice. `listener` runs on the re-indexing task, so
+    /// it must return quickly.
     pub fn on_file_changes(&self, listener: impl Fn(&[FileChange]) + Send + Sync + 'static) {
         self.file_listeners.write().push(Arc::new(listener));
     }

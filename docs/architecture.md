@@ -742,8 +742,11 @@ file changed is sent again, one read within 3 s of its last write is compared by
 content, one whose file is gone is closed, and the changes on disk noted since the
 server's last request go to it as `workspace/didChangeWatchedFiles`. The MCP server
 notes them from each re-index (`Database::on_file_changes` →
-`Translator::note_disk_changes`); `DiskChangeLog` keeps, by path, the latest
-change and how far each running server has heard.
+`Translator::note_disk_changes`), and from its watcher, which announces the files a
+batch saw before re-indexing them: another process indexing the same database may
+re-index them first, and the watcher's own re-index then finds nothing new.
+`DiskChangeLog` keeps, by path, the latest change, merged with the earlier ones, and
+how far each running server has heard.
 
 Some servers get settings of their own ([Language servers](lsp.md#what-servers-write-into-a-project)):
 rust-analyzer builds in `target/rust-analyzer` (`cargo.targetDir: true`), off the
