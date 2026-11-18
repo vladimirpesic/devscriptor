@@ -177,7 +177,10 @@ idle only while no session uses it.
   `TMP`) set to a directory of its own, `devscriptor-lsp-<pid>-<language>-*` in the
   system's, removed when the server stops, so what a server leaves there goes with
   it. A Devscriptor process killed with SIGKILL removes none; the next one to start
-  a server removes those of processes that are gone.
+  a server removes those of processes that are gone. When the cache folder
+  (`XDG_CACHE_HOME`, else the platform's) cannot be written, as where it is mounted
+  read-only, the server's `XDG_CACHE_HOME` is a `cache` folder in that directory:
+  phpactor, for one, does not start without a cache it can create.
 - **Idle shutdown.** A server unused for `idle_timeout_secs` (600) is stopped, and
   the next request starts it again. Unused means no request, notification or
   readiness wait in progress, and none for that long.

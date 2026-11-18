@@ -204,6 +204,14 @@ impl LspServer {
             for var in ["TMPDIR", "TEMP", "TMP"] {
                 cmd.env(var, dir.path());
             }
+            if let Some(cache) = cache_home_in(crate::user_dirs::cache_dir(), dir.path()) {
+                info!(
+                    "The cache folder cannot be written: the {} server keeps its cache in {}",
+                    config.language_id,
+                    cache.display()
+                );
+                cmd.env(CACHE_HOME_VAR, cache);
+            }
         }
         // A lock file the user's environment names is theirs to keep.
         if config.language_id == "rust" && std::env::var_os(CARGO_LOCKFILE_VAR).is_none() {
@@ -411,6 +419,26 @@ impl LspServer {
 /// The start of a server's temporary directory's name: then the id of the
 /// Devscriptor process it belongs to, and the language.
 const TEMP_DIR_PREFIX: &str = "devscriptor-lsp-";
+
+/// The variable a language server finds its cache folder by.
+const CACHE_HOME_VAR: &str = "XDG_CACHE_HOME";
+
+/// Where a language server keeps its cache when `home`, the user's cache
+/// folder, cannot be written: `cache` in `temp_dir`, the server's own
+/// temporary directory, which goes when the server stops. A machine can mount
+/// the cache folder read-only (a container that shares one, a sandbox), and
+/// a server such as phpactor does not start without a cache it can create.
+/// `None` when `home` can be written, or there is none.
+fn cache_home_in(home: Option<PathBuf>, temp_dir: &Path) -> Option<PathBuf> {
+    let home = home?;
+    let writable = std::fs::create_dir_all(&home).is_ok() && tempfile::tempfile_in(&home).is_ok();
+    if writable {
+        return None;
+    }
+    let cache = temp_dir.join("cache");
+    std::fs::create_dir_all(&cache).ok()?;
+    Some(cache)
+}
 
 /// Remove, once per process, the servers' temporary directories that `owner`
 /// left behind in Devscriptor processes that are gone: a process killed with
@@ -1050,6 +1078,30 @@ pub async fn spawn_servers_in(pairs: &[(LspServerConfig, Vec<PathBuf>)]) -> Spaw
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A server keeps its cache in its own temporary directory when the
+    /// user's cache folder cannot be written, and in the user's otherwise.
+    #[cfg(unix)]
+    #[test]
+    fn a_cache_folder_that_cannot_be_written_is_replaced() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        assert_eq!(
+            cache_home_in(Some(home.path().to_path_buf()), temp.path()),
+            None
+        );
+        assert_eq!(cache_home_in(None, temp.path()), None);
+
+        std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        // Root writes anywhere: nothing to replace then.
+        if tempfile::tempfile_in(home.path()).is_err() {
+            let cache = cache_home_in(Some(home.path().to_path_buf()), temp.path());
+            assert_eq!(cache, Some(temp.path().join("cache")));
+            assert!(temp.path().join("cache").is_dir());
+        }
+        std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
 
     /// rust-analyzer's cargo resolves a workspace into a lock file in its own
     /// build directory, copied from the project's where there is one: a
