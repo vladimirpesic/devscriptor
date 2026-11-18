@@ -21,7 +21,6 @@ use devscriptor_core::graph::resolve::{Resolution, rebuild_edges_for_sources};
 use devscriptor_core::parser::ParserConfig;
 use devscriptor_core::parser::symbol_table::DEFAULT_AMBIGUOUS_FANOUT;
 use devscriptor_core::pipeline::{CodebasePipeline, PipelineConfig};
-use filetime::FileTime;
 use tempfile::TempDir;
 
 /// An entity keyed as any scan of the same tree keys it: path relative to the
@@ -79,10 +78,11 @@ fn write_fixture(root: &Path) {
     }
 }
 
-/// Rewrite `path` with `edit` and give it a modification time no earlier scan
-/// can have recorded, so the incremental fast path (same size and mtime) never
-/// mistakes the edit for an unchanged file.
-fn edit(root: &Path, path: &str, edit: impl FnOnce(String) -> String, stamp: i64) {
+/// Rewrite `path` with `edit`, which must change it. The rewrite can fall in
+/// the second the last scan read the file, at the same size: the scan's
+/// manifest row is then unsettled, and the next run hashes the file rather
+/// than trust its size and modification time.
+fn edit(root: &Path, path: &str, edit: impl FnOnce(String) -> String) {
     let path = root.join(path);
     let before = std::fs::read_to_string(&path).expect("read file to edit");
     let after = edit(before.clone());
@@ -93,23 +93,10 @@ fn edit(root: &Path, path: &str, edit: impl FnOnce(String) -> String, stamp: i64
         path.display()
     );
     std::fs::write(&path, after).expect("write edited file");
-    stamp_file(&path, stamp);
 }
 
-fn create(root: &Path, path: &str, content: &str, stamp: i64) {
-    let path = root.join(path);
-    std::fs::write(&path, content).expect("write new file");
-    stamp_file(&path, stamp);
-}
-
-fn stamp_file(path: &Path, stamp: i64) {
-    let base = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock after the epoch")
-        .as_secs();
-    let base = i64::try_from(base).expect("seconds since the epoch fit an i64");
-    filetime::set_file_mtime(path, FileTime::from_unix_time(base + 60 * stamp, 0))
-        .expect("set mtime");
+fn create(root: &Path, path: &str, content: &str) {
+    std::fs::write(root.join(path), content).expect("write new file");
 }
 
 fn replace(from: &'static str, to: &'static str) -> impl FnOnce(String) -> String {
@@ -266,32 +253,25 @@ type Scenario = (&'static str, fn(&Path));
 /// The edits, applied in order to one tree.
 const SCENARIOS: &[Scenario] = &[
     ("a comment added to each callee's file", |root| {
-        edit(root, "app/geometry.py", |s| s + "\n# a comment\n", 1);
-        edit(root, "core/money.rs", |s| s + "\n// a comment\n", 1);
+        edit(root, "app/geometry.py", |s| s + "\n# a comment\n");
+        edit(root, "core/money.rs", |s| s + "\n// a comment\n");
     }),
     ("a call removed from a caller", |root| {
         edit(
             root,
             "app/report.py",
             replace("return scale(1) + total()", "return total()"),
-            2,
         );
     }),
     (
         "a call added from an edited file into an unchanged file",
         |root| {
-            edit(
-                root,
-                "app/caller.py",
-                |s| s + "\n\ndef third_caller():\n    return scale(9)\n",
-                3,
-            );
-            edit(
-                root,
-                "core/ops.rs",
-                |s| s + "\npub fn triple(m: Money) -> Money {\n    add(m, double(m))\n}\n",
-                3,
-            );
+            edit(root, "app/caller.py", |s| {
+                s + "\n\ndef third_caller():\n    return scale(9)\n"
+            });
+            edit(root, "core/ops.rs", |s| {
+                s + "\npub fn triple(m: Money) -> Money {\n    add(m, double(m))\n}\n"
+            });
         },
     ),
     ("a function another file calls renamed", |root| {
@@ -299,7 +279,6 @@ const SCENARIOS: &[Scenario] = &[
             root,
             "app/geometry.py",
             replace("def scale(value):", "def resize(value):"),
-            4,
         );
     }),
     ("a file deleted", |root| {
@@ -310,19 +289,13 @@ const SCENARIOS: &[Scenario] = &[
             root,
             "app/extra.py",
             "from report import total\n\n\ndef extra():\n    return total() + total()\n",
-            6,
         );
     }),
     ("a second definition of a name another file calls", |root| {
-        edit(
-            root,
-            "core/money.rs",
-            |s| {
-                s + "\nimpl Money {\n    pub fn add(self, other: Money) -> Money {\n        \
+        edit(root, "core/money.rs", |s| {
+            s + "\nimpl Money {\n    pub fn add(self, other: Money) -> Money {\n        \
                      Money {\n            cents: self.cents + other.cents,\n        }\n    }\n}\n"
-            },
-            7,
-        );
+        });
     }),
 ];
 
@@ -459,7 +432,7 @@ async fn a_reindex_of_paths_skips_what_a_scan_skips() {
     for path in skipped {
         let dir = root.join(path).parent().expect("a directory").to_path_buf();
         std::fs::create_dir_all(dir).expect("mkdir");
-        create(root, path, "def vendored():\n    return 1\n", 7);
+        create(root, path, "def vendored():\n    return 1\n");
     }
     let result = pipeline(&db, true)
         .reindex_paths(
@@ -548,13 +521,11 @@ async fn a_new_definition_is_linked_from_unchanged_callers() {
                 "return scale(1) + total()",
                 "return scale(1) + total() + helper()",
             ),
-            1,
         );
         create(
             root,
             "app/assist.py",
             "from geometry import helper as aid\n\n\ndef assisted():\n    return aid()\n",
-            1,
         );
         let index = TempDir::new().expect("tempdir for the index");
         let db = index.path().join("index.db");
@@ -562,12 +533,9 @@ async fn a_new_definition_is_linked_from_unchanged_callers() {
         assert!(!calls(&graph(&db, root), "summary", "helper"));
 
         edit_and_reindex(&db, root, how, |root| {
-            edit(
-                root,
-                "app/geometry.py",
-                |s| s + "\n\ndef helper():\n    return 1\n",
-                2,
-            );
+            edit(root, "app/geometry.py", |s| {
+                s + "\n\ndef helper():\n    return 1\n"
+            });
         })
         .await;
 
@@ -668,17 +636,11 @@ async fn a_reindex_resolves_references_within_their_project() {
     for how in [Reindex::Incremental, Reindex::Full, Reindex::Paths] {
         let first = TempDir::new().expect("tempdir for the first project");
         let second = TempDir::new().expect("tempdir for the second project");
-        create(
-            first.path(),
-            "main.py",
-            "def run():\n    return shared()\n",
-            0,
-        );
+        create(first.path(), "main.py", "def run():\n    return shared()\n");
         create(
             second.path(),
             "lib.py",
             "def shared():\n    return 1\n\n\ndef user():\n    return shared()\n",
-            0,
         );
         let index = TempDir::new().expect("tempdir for the index");
         let db = index.path().join("index.db");
@@ -686,16 +648,11 @@ async fn a_reindex_resolves_references_within_their_project() {
         reindex(&db, second.path(), false).await;
 
         edit_and_reindex(&db, first.path(), how, |root| {
-            edit(root, "main.py", |s| s + "\n# edited\n", 1);
+            edit(root, "main.py", |s| s + "\n# edited\n");
         })
         .await;
         edit_and_reindex(&db, second.path(), how, |root| {
-            edit(
-                root,
-                "lib.py",
-                |s| s + "\n\ndef shared():\n    return 2\n",
-                1,
-            );
+            edit(root, "lib.py", |s| s + "\n\ndef shared():\n    return 2\n");
         })
         .await;
 
