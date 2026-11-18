@@ -209,16 +209,25 @@ download_gem() {
     rm -f "$gem_err"
 }
 
-# built_for_this_ruby <bundle>: whether the gem bundle's native extensions,
-# under `extensions/<platform>/<api>/`, are this machine's Ruby's, as
-# Devscriptor checks before it runs one: another Ruby misses the gems they
-# belong to (Ruby 3.3 finds no `prism` in a bundle built with 3.2). A bundle
-# with no native extensions runs on any.
+# built_for_this_ruby <bundle>: whether this machine's Ruby can load the gem
+# bundle's native extensions, as Devscriptor checks before it runs one. A Ruby
+# looks for them under `extensions/<platform>/<api>/`, its own platform's name
+# and API version, and misses the gems they belong to otherwise: Ruby 3.3 finds
+# no `prism` in a bundle built with 3.2, nor does a Ruby built from source
+# (`x86_64-linux`) in one Debian's Ruby built (`x86_64-linux-gnu`). Each must
+# also link against this Ruby's library, which Fiddle checks without running
+# it. A bundle with no native extensions runs on any.
 built_for_this_ruby() {
-    local api
+    local own library libraries=()
     [ -d "$1/extensions" ] || return 0
-    api=$(ruby -e 'print Gem.extension_api_version' 2>/dev/null || true)
-    [ -n "$api" ] && [ -n "$(find "$1/extensions" -mindepth 2 -maxdepth 2 -type d -name "$api" 2>/dev/null | head -1 || true)" ]
+    own=$(ruby -e 'print Gem::Platform.local.to_s + %q(/) + Gem.extension_api_version' 2>/dev/null || true)
+    [ -n "$own" ] && [ -d "$1/extensions/$own" ] || return 1
+    while IFS= read -r -d '' library; do
+        libraries+=("$library")
+    done < <(find "$1/extensions/$own" \( -name '*.so' -o -name '*.bundle' \) -print0 2>/dev/null)
+    [ ${#libraries[@]} -eq 0 ] && return 0
+    ruby -e 'begin; require %q(fiddle); rescue LoadError; exit 0; end; ARGV.each { |l| Fiddle.dlopen(l).close }' \
+        "${libraries[@]}" >/dev/null 2>&1
 }
 
 # Helper to locate the Coursier launcher.

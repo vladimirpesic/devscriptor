@@ -324,7 +324,7 @@ impl LspResolver {
         if info.source.source_type != crate::manager::registry::SourceType::Gem {
             return false;
         }
-        let local = crate::manager::ruby::local_extension_api();
+        let local = crate::manager::ruby::local_ruby();
         if crate::manager::ruby::built_for_another_ruby(&root.join(server_id), local).is_none() {
             return false;
         }
@@ -999,7 +999,7 @@ mod tests {
                 .join("extensions/x86_64-linux/0.0.1"),
         )
         .unwrap();
-        if crate::manager::ruby::local_extension_api().is_some() {
+        if crate::manager::ruby::local_ruby().is_some() {
             assert!(resolver.resolve_from_managed(server).is_none());
         }
     }

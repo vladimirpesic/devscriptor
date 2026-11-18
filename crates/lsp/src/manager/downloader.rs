@@ -523,7 +523,7 @@ pub async fn download_server(
                 if server_info.source.source_type == SourceType::Gem
                     && let Some(built_for) = super::ruby::built_for_another_ruby(
                         install_dir,
-                        super::ruby::local_extension_api(),
+                        super::ruby::local_ruby(),
                     ) =>
             {
                 info!(

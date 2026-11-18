@@ -198,11 +198,15 @@ replaces such an install with one beside Fantomas.
 - **Source:** the mirror's package, or `gem install ruby-lsp` at the version the
   registry pins, with this machine's Ruby.
 - **Needs:** **Ruby 3.0 or newer**. Its gems' native extensions (`prism`, `rbs`)
-  load only on the Ruby API version they were built for: a package built for
-  another Ruby is skipped, with a warning naming both versions, and
-  `devscriptor lsp setup ruby-lsp` installs it again with this machine's Ruby,
-  which needs that Ruby's headers and a C compiler
-  (`apt install ruby-dev build-essential`).
+  load only on a Ruby of the API version and platform they were built for, and
+  only where they link against that Ruby's library: the Linux package, built
+  with Debian's Ruby (`x86_64-linux-gnu`), does not load on a Ruby built from
+  source, as rbenv, asdf, mise and Docker's images build it (`x86_64-linux`).
+  Devscriptor checks both, opening the extensions with this machine's Ruby
+  (Fiddle links them without running them). A package another Ruby built is
+  skipped, with a warning naming both Rubies, and `devscriptor lsp setup
+  ruby-lsp` installs it again with this machine's Ruby, which needs that Ruby's
+  headers and a C compiler (`apt install ruby-dev build-essential`).
 
 ## Swift
 
@@ -225,4 +229,4 @@ and skips a copy in the managed directory. Install a toolchain from
 | `shared library not found` | A missing system library or runtime | Install the runtime the server needs (above) |
 | An npm server is `not found` or does not start | Node.js missing, or older than 18 | Install Node.js 18 or newer, with `node` and `npm` on the PATH |
 | rust-analyzer starts but finds nothing | No Rust toolchain: it loads a project through `cargo` | Install Rust with rustup |
-| ruby-lsp is skipped with a version warning | Its package was built for another Ruby | `devscriptor lsp setup ruby-lsp` |
+| ruby-lsp is skipped with a Ruby warning | Its package was built by another Ruby | `devscriptor lsp setup ruby-lsp` |

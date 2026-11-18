@@ -153,17 +153,24 @@ function Register-Msys2WithRidk {
     & ridk install 3
 }
 
-# Whether the gem bundle's native extensions, under
-# extensions\<platform>\<api>\, are this machine's Ruby's, as Devscriptor
-# checks before it runs one: another Ruby misses the gems they belong to. A
-# bundle with no native extensions runs on any.
+# Whether this machine's Ruby can load the gem bundle's native extensions, as
+# Devscriptor checks before it runs one. A Ruby looks for them under
+# extensions\<platform>\<api>\, its own platform's name and API version, and
+# misses the gems they belong to otherwise; each must also link against this
+# Ruby's library, which Fiddle checks without running it. A bundle with no
+# native extensions runs on any.
 function Test-BuiltForThisRuby([string]$Bundle) {
     $extensions = Join-Path $Bundle "extensions"
     if (-not (Test-Path $extensions)) { return $true }
     if (-not (Test-Cmd ruby)) { return $false }
-    $api = (& ruby -e "print Gem.extension_api_version" 2>$null)
-    if (-not $api) { return $false }
-    return [bool](Get-ChildItem $extensions -Directory | Get-ChildItem -Directory | Where-Object { $_.Name -eq $api } | Select-Object -First 1)
+    $own = (& ruby -e 'print Gem::Platform.local.to_s + %q(/) + Gem.extension_api_version' 2>$null)
+    if (-not $own) { return $false }
+    $dir = Join-Path $extensions $own
+    if (-not (Test-Path $dir -PathType Container)) { return $false }
+    $libraries = @(Get-ChildItem $dir -Recurse -File -Include *.so, *.bundle | ForEach-Object { $_.FullName })
+    if ($libraries.Count -eq 0) { return $true }
+    & ruby -e 'begin; require %q(fiddle); rescue LoadError; exit 0; end; ARGV.each { |l| Fiddle.dlopen(l).close }' @libraries *> $null
+    return ($LASTEXITCODE -eq 0)
 }
 
 # --- gem install (ruby-lsp) ---

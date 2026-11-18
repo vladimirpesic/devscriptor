@@ -561,7 +561,13 @@ fn a_dotnet_tool_is_installed_with_its_companions() {
 }
 
 /// `ruby` whose extension API version is 3.3.0.
-const RUBY: &str = "#!/bin/sh\necho 3.3.0 | tr -d '\\n'\n";
+const RUBY: &str = r#"#!/bin/sh
+case "$2" in
+    *Gem::Platform*) printf '%s' x86_64-linux/3.3.0 ;;
+    *fiddle*) exit "${RUBY_LINKS:-0}" ;;
+    *) printf '%s' 3.3.0 ;;
+esac
+"#;
 
 /// `gem` that logs that it ran to `$GEM_LOG` and installs placeholder
 /// binstubs into its `--bindir`.
@@ -579,9 +585,10 @@ for stub in ruby-lsp ruby-lsp-launcher; do
 done
 "#;
 
-/// A ruby-lsp bundle of the pinned version is kept only when its native
-/// extensions are this Ruby's: one built with Ruby 3.2, which Ruby 3.3 cannot
-/// load, is installed again with this one.
+/// A ruby-lsp bundle of the pinned version is kept only when this machine's
+/// Ruby can load its native extensions: they are under its platform's name and
+/// API version (`x86_64-linux/3.3.0` for the fake `ruby`), and they link
+/// against it. Any other bundle is installed again, for this Ruby.
 #[test]
 #[cfg_attr(
     not(target_os = "linux"),
@@ -589,7 +596,12 @@ done
 )]
 fn a_bundle_built_for_another_ruby_is_replaced() {
     let script = "scripts/linux-x86_64/download-lsp-servers.sh";
-    for (built_for, replaced) in [("3.2.0", true), ("3.3.0", false)] {
+    for (built_for, links, replaced) in [
+        ("x86_64-linux/3.2.0", "0", true),
+        ("x86_64-linux-gnu/3.3.0", "0", true),
+        ("x86_64-linux/3.3.0", "1", true),
+        ("x86_64-linux/3.3.0", "0", false),
+    ] {
         let root = tempfile::tempdir().unwrap();
         let log = root.path().join("gem.log");
         std::fs::write(&log, "").unwrap();
@@ -601,26 +613,26 @@ fn a_bundle_built_for_another_ruby_is_replaced() {
                 write_tool(tools, "ruby", RUBY);
                 write_tool(tools, "gem", GEM);
             },
-            &[("GEM_LOG", &log)],
+            &[("GEM_LOG", &log), ("RUBY_LINKS", Path::new(links))],
             |lsp_dir| {
                 let bundle = lsp_dir.join("ruby-lsp");
                 std::fs::create_dir_all(bundle.join("bin")).unwrap();
                 std::fs::write(bundle.join("bin/ruby-lsp-launcher"), "").unwrap();
                 std::fs::write(bundle.join(".version"), "0.26.11\n").unwrap();
-                std::fs::create_dir_all(
-                    bundle.join(format!("extensions/x86_64-linux/{built_for}/prism-1.9.0")),
-                )
-                .unwrap();
+                let prism = bundle.join(format!("extensions/{built_for}/prism-1.9.0/prism"));
+                std::fs::create_dir_all(&prism).unwrap();
+                std::fs::write(prism.join("prism.so"), "").unwrap();
             },
         );
         let installed = !std::fs::read_to_string(&log).unwrap().is_empty();
-        assert_eq!(installed, replaced, "built for {built_for}:\n{stdout}");
+        let case = format!("built for {built_for}, linking {links}");
+        assert_eq!(installed, replaced, "{case}:\n{stdout}");
         assert_eq!(
             lsp_dir
-                .join(format!("ruby-lsp/extensions/x86_64-linux/{built_for}"))
+                .join(format!("ruby-lsp/extensions/{built_for}"))
                 .exists(),
             !replaced,
-            "built for {built_for}"
+            "{case}"
         );
     }
 }

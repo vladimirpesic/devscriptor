@@ -131,17 +131,15 @@ impl LspManager {
     /// The Ruby the gem install of `server_id` was built for, when it is not
     /// this machine's: its native extensions cannot load here (a package built
     /// with Ruby 3.2 does not load under Ruby 3.3). [`Self::install`] replaces
-    /// it.
+    /// it. One built under another name of this machine's platform is linked to
+    /// load here ([`ruby::built_for_another_ruby`]).
     #[must_use]
     pub fn built_for_another_ruby(&self, server_id: &str) -> Option<String> {
         let info = self.registry.get_server(server_id)?;
         if info.source.source_type != registry::SourceType::Gem {
             return None;
         }
-        ruby::built_for_another_ruby(
-            &self.install_dir.join(server_id),
-            ruby::local_extension_api(),
-        )
+        ruby::built_for_another_ruby(&self.install_dir.join(server_id), ruby::local_ruby())
     }
 
     /// Whether [`Self::install`] installs `server_id`: it is not installed,
@@ -568,11 +566,15 @@ impl Unavailable {
     /// made.
     #[must_use]
     pub fn of(root: &std::path::Path, info: &ServerInfo) -> Self {
-        Self::from_install(root, info, ruby::local_extension_api())
+        Self::from_install(root, info, ruby::local_ruby())
     }
 
     /// [`Self::of`], with `local_ruby` as this machine's Ruby.
-    fn from_install(root: &std::path::Path, info: &ServerInfo, local_ruby: Option<&str>) -> Self {
+    fn from_install(
+        root: &std::path::Path,
+        info: &ServerInfo,
+        local_ruby: Option<&ruby::RubyBuild>,
+    ) -> Self {
         let id = info.id.as_str();
         let dir = root.join(id);
         let linked = link_target(&dir);
@@ -586,12 +588,22 @@ impl Unavailable {
         if info.source.source_type == SourceType::Gem
             && let Some(built_for) = ruby::built_for_another_ruby(&dir, local_ruby)
         {
+            let local = local_ruby.map_or_else(|| "?".to_string(), ToString::to_string);
+            let what = if built_for == local {
+                format!(
+                    "holds native extensions for Ruby {built_for} that this machine's Ruby, \
+                     another build of {local}, cannot link"
+                )
+            } else {
+                format!(
+                    "was built for Ruby {built_for}, and this machine runs Ruby {local}, so it \
+                     cannot load its native extensions"
+                )
+            };
             return Self {
                 installed: true,
                 reason: format!(
-                    "was built for Ruby {built_for}, and this machine runs Ruby {}, so it cannot \
-                     load its native extensions{}",
-                    local_ruby.unwrap_or("?"),
+                    "{what}{}",
                     fix(
                         "rebuild it there for this Ruby",
                         format!("`devscriptor lsp setup {id}` installs it for this Ruby")
@@ -696,7 +708,11 @@ mod tests {
     fn the_reason_a_server_does_not_run_is_its_installs() {
         let root = TempDir::new().unwrap();
         let entry = |id| ServerRegistry::entry(id).unwrap();
-        let why = |id| Unavailable::from_install(root.path(), entry(id), Some("3.3.0"));
+        let local = ruby::RubyBuild {
+            platform: "x86_64-linux".to_string(),
+            api: "3.3.0".to_string(),
+        };
+        let why = |id| Unavailable::from_install(root.path(), entry(id), Some(&local));
 
         let missing = why("ruby-lsp");
         assert!(!missing.installed);
@@ -732,8 +748,9 @@ mod tests {
         assert!(rebuilt.installed);
         assert_eq!(
             rebuilt.reason,
-            "was built for Ruby 3.2.0, and this machine runs Ruby 3.3.0, so it cannot load its \
-             native extensions: `devscriptor lsp setup ruby-lsp` installs it for this Ruby"
+            "was built for Ruby 3.2.0 on x86_64-linux, and this machine runs Ruby 3.3.0 on \
+             x86_64-linux, so it cannot load its native extensions: `devscriptor lsp setup \
+             ruby-lsp` installs it for this Ruby"
         );
         #[cfg(unix)]
         {
@@ -743,9 +760,9 @@ mod tests {
             assert_eq!(
                 why("ruby-lsp").reason,
                 format!(
-                    "was built for Ruby 3.2.0, and this machine runs Ruby 3.3.0, so it cannot \
-                     load its native extensions; it is a link to {}, set up outside \
-                     Devscriptor: rebuild it there for this Ruby",
+                    "was built for Ruby 3.2.0 on x86_64-linux, and this machine runs Ruby 3.3.0 \
+                     on x86_64-linux, so it cannot load its native extensions; it is a link to \
+                     {}, set up outside Devscriptor: rebuild it there for this Ruby",
                     mirror.display()
                 )
             );
