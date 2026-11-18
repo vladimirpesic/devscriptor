@@ -233,6 +233,12 @@ automatically. Entity/concept links are stored by type/name/file, so they remain
 valid across re-scans as long as those names persist; manage notes explicitly as
 decisions and knowledge evolve.
 
+A search of the code through MCP (`semantic_search`, `search_entities`,
+`search_functions`, `search_classes`, `fuzzy_search`) names the notes its query
+matches by keyword, at most 3, in `context_notes`: an agent learns that the
+Context Graph has something to say about what it looks for without asking, and
+recalls those notes with `search_context`.
+
 ## Related Documentation
 
 - [MCP server](mcp.md) — all 75 MCP tools, including the 5 Context Graph tools

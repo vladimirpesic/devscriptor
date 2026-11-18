@@ -13,9 +13,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use devscriptor_core::database::operations::{ScanManifestEntry, deepest_root};
+use devscriptor_core::pipeline::CodebasePipeline;
 use serde_json::{Value, json};
 use tracing::{debug, warn};
 
@@ -206,10 +208,10 @@ where
 /// ([`ScanManifestEntry::vouches_for`]). A changed or deleted file is
 /// re-indexed, and so is a file the index has never seen that a scan would
 /// index; each under the deepest scanned root that contains it, the root the
-/// watcher uses. At most [`MAX_FILES`] are
-/// re-indexed, through the server's structural pipeline
-/// ([`DevscriptorServerState::structural_pipeline`]), and the answer waits for
-/// them at most [`DevscriptorServerState::freshness_budget`]. A re-index that
+/// watcher uses. At most [`MAX_FILES`] are re-indexed, each through the
+/// pipeline of its root's project ([`DevscriptorServerState::pipeline_for`]),
+/// and the answer waits for them at most
+/// [`DevscriptorServerState::freshness_budget`]. A re-index that
 /// takes longer goes on in the background, and its files are reported stale.
 ///
 /// A file outside every scanned root, or that the scan rules exclude, is
@@ -276,9 +278,9 @@ async fn check(
 
     let mut report = FreshnessReport::default();
     let roots = database.indexed_roots().await?;
-    let pipeline = state.structural_pipeline().await?;
-    // The files to re-index, by root in the order the roots come up.
-    let mut groups: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
+    // The files to re-index, by root in the order the roots come up, each
+    // root with the pipeline of its project.
+    let mut groups: Vec<(PathBuf, Arc<CodebasePipeline>, Vec<PathBuf>)> = Vec::new();
     let mut attempted: Vec<String> = Vec::new();
     for path in changed {
         let known = before.contains_key(path);
@@ -289,6 +291,10 @@ async fn check(
             }
             continue;
         };
+        let pipeline = match groups.iter().find(|(group_root, ..)| group_root == root) {
+            Some((_, pipeline, _)) => Arc::clone(pipeline),
+            None => state.pipeline_for(root).await?,
+        };
         if !known && !scan_would_index(&pipeline, root, Path::new(path)).await? {
             continue;
         }
@@ -297,9 +303,12 @@ async fn check(
             continue;
         }
         attempted.push(path.clone());
-        match groups.iter_mut().find(|(group_root, _)| group_root == root) {
-            Some((_, files)) => files.push(PathBuf::from(path)),
-            None => groups.push((root.clone(), vec![PathBuf::from(path)])),
+        match groups
+            .iter_mut()
+            .find(|(group_root, ..)| group_root == root)
+        {
+            Some((.., files)) => files.push(PathBuf::from(path)),
+            None => groups.push((root.clone(), pipeline, vec![PathBuf::from(path)])),
         }
     }
     if attempted.is_empty() {
@@ -311,7 +320,7 @@ async fn check(
         attempted.len()
     );
     let task = tokio::spawn(async move {
-        for (root, files) in groups {
+        for (root, pipeline, files) in groups {
             if let Err(e) = pipeline.reindex_paths(&root, &files).await {
                 warn!(
                     "Re-indexing {} changed files under {} failed: {e}",
@@ -429,7 +438,7 @@ async fn disk_states(paths: Vec<String>) -> anyhow::Result<HashMap<String, DiskS
 
 /// Whether a scan of `root` would index `path`.
 async fn scan_would_index(
-    pipeline: &devscriptor_core::pipeline::CodebasePipeline,
+    pipeline: &CodebasePipeline,
     root: &Path,
     path: &Path,
 ) -> anyhow::Result<bool> {

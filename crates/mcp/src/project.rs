@@ -22,6 +22,9 @@ use tracing::{info, warn};
 /// changes.
 #[derive(Debug)]
 pub struct ProjectSettings {
+    /// The directory the server works in, symlinks resolved: where its
+    /// client started it. None for a server with no project.
+    workspace: Option<PathBuf>,
     /// The file: the one `--config` named, else `devscriptor.yaml` in the
     /// workspace, which need not exist. None for a server with no project.
     path: Option<PathBuf>,
@@ -57,6 +60,7 @@ impl ProjectSettings {
     #[must_use]
     pub fn none() -> Self {
         Self {
+            workspace: None,
             path: None,
             explicit: false,
             loaded: Mutex::new(Loaded {
@@ -78,6 +82,9 @@ impl ProjectSettings {
             None => workspace.join(PROJECT_CONFIG_FILE),
         };
         let settings = Self {
+            workspace: Some(
+                dunce::canonicalize(workspace).unwrap_or_else(|_| workspace.to_path_buf()),
+            ),
             path: Some(path.clone()),
             explicit: explicit.is_some(),
             ..Self::none()
@@ -87,6 +94,12 @@ impl ProjectSettings {
             settings.read(&path, stamp(Some(&path)), &mut loaded);
         }
         settings
+    }
+
+    /// The directory the server works in, if it has a project.
+    #[must_use]
+    pub fn workspace(&self) -> Option<&Path> {
+        self.workspace.as_deref()
     }
 
     /// The file this server follows, if it follows one.

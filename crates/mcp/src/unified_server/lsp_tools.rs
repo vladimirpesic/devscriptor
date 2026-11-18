@@ -1548,49 +1548,34 @@ impl UnifiedMcpServer {
 }
 
 /// Build the 38 LSP tool schema definitions for [`list_tools`].
-/// What every tool whose results carry positions says about quoting them.
-const CITE_NOTE: &str = "Each result carries `cite`, `path:line:column` counted from 1: quote \
-                         it as is. `range` and `position` are LSP's, 0-based.";
-
-/// `description`, then [`CITE_NOTE`].
-fn cites(description: &str) -> String {
-    format!("{description} {CITE_NOTE}")
-}
-
 pub fn tool_list() -> Vec<Tool> {
     vec![
         // Navigation
         Tool::new(
             "get_hover",
-            "Get hover info (type signature/docs) for a symbol. Pass a symbol `name` (resolved from the code index) or explicit line/character.",
+            "Get hover info (type signature/docs) for a symbol.",
             position_schema(json!({})),
         ),
         Tool::new(
             "get_definition",
-            cites(
-                "Find where a symbol is defined. Pass a symbol `name` (resolved from the code index) or explicit line/character.",
-            ),
+            "Find where a symbol is defined.",
             position_schema(json!({})),
         ),
         Tool::new(
             "get_references",
-            cites(
-                "Find all references to a symbol. Pass a symbol `name` (resolved from the code index) or explicit line/character. Uses the code index records (calls, reads of constants and properties, functions passed, type uses and imports) that the language server did not report (in files it cannot read, such as `.vue` and `.svelte` files for the TypeScript server) come in `index_locations`, by line.",
-            ),
+            "Find all references to a symbol. The uses the code index records (calls, reads of constants and properties, functions passed, type uses, imports) that the language server did not report, in files it cannot read such as `.vue` and `.svelte` files for the TypeScript server, come in `index_locations`, by line.",
             position_schema(json!({
                 "include_declaration": {"type": "boolean"}
             })),
         ),
         Tool::new(
             "get_type_definitions",
-            cites(
-                "Find a symbol's type definition(s). Pass a symbol `name` (resolved from the code index) or explicit line/character.",
-            ),
+            "Find a symbol's type definition(s).",
             position_schema(json!({})),
         ),
         Tool::new(
             "get_implementations",
-            cites("Find implementations"),
+            "Find implementations",
             position_schema(json!({})),
         ),
         // Completion
@@ -1611,7 +1596,7 @@ pub fn tool_list() -> Vec<Tool> {
         // Diagnostics & Actions
         Tool::new(
             "get_diagnostics",
-            cites("Get diagnostics (errors/warnings) for a file"),
+            "Get diagnostics (errors/warnings) for a file",
             create_schema(json!({
                 "type": "object",
                 "properties": {"file_path": {"type": "string"}},
@@ -1645,9 +1630,7 @@ pub fn tool_list() -> Vec<Tool> {
         // Symbols
         Tool::new(
             "get_document_symbols",
-            cites(
-                "Get all symbols in a file, parent first: each at its name, with the symbol it is declared in as `container_name`",
-            ),
+            "Get all symbols in a file, parent first: each at its name, with the symbol it is declared in as `container_name`",
             create_schema(json!({
                 "type": "object",
                 "properties": {"file_path": {"type": "string"}},
@@ -1656,9 +1639,7 @@ pub fn tool_list() -> Vec<Tool> {
         ),
         Tool::new(
             "get_workspace_symbols",
-            cites(
-                "Search symbols across the workspace: every running language server that offers it is asked, and their answers merged; one that could not answer is named in `note`",
-            ),
+            "Search symbols across the workspace: every running language server that offers it is asked, and their answers merged; one that could not answer is named in `note`",
             create_schema(json!({
                 "type": "object",
                 "properties": {"query": {"type": "string"}},
@@ -1667,7 +1648,7 @@ pub fn tool_list() -> Vec<Tool> {
         ),
         Tool::new(
             "get_symbols",
-            cites("Get symbols for a file as get_document_symbols gives them, a page at a time"),
+            "Get symbols for a file as get_document_symbols gives them, a page at a time",
             create_schema(json!({
                 "type": "object",
                 "properties": {
@@ -1680,7 +1661,7 @@ pub fn tool_list() -> Vec<Tool> {
         ),
         Tool::new(
             "get_project_symbols",
-            cites("Search a language server's symbols by name, a page at a time"),
+            "Search a language server's symbols by name, a page at a time",
             create_schema(json!({
                 "type": "object",
                 "properties": {
@@ -1701,54 +1682,44 @@ pub fn tool_list() -> Vec<Tool> {
         // Call Hierarchy
         Tool::new(
             "get_call_hierarchy",
-            cites(
-                "Prepare the call hierarchy for a symbol (feed the result to get_incoming_calls/get_outgoing_calls). Pass a symbol `name` (resolved from the code index) or explicit line/character.",
-            ),
+            "Prepare the call hierarchy for a symbol (feed the result to get_incoming_calls/get_outgoing_calls).",
             position_schema(json!({})),
         ),
         Tool::new(
             "get_incoming_calls",
-            cites(
-                "Get the calls into a function: pass an `item` from `get_call_hierarchy`, or name the function (`name`, or `file_path` with `line`/`character`) and the call hierarchy is prepared for you. Calls the code index records that the language server did not report (in files it cannot read, such as `.vue` and `.svelte` files for the TypeScript server) come in `index_calls`, each with its caller and line.",
-            ),
+            "Get the calls into a function: pass an `item` from `get_call_hierarchy`, or name the function (`name`, or `file_path` with `line`/`character`) and the call hierarchy is prepared for you. Calls the code index records that the language server did not report (in files it cannot read, such as `.vue` and `.svelte` files for the TypeScript server) come in `index_calls`, each with its caller and line.",
             hierarchy_item_schema("get_call_hierarchy"),
         ),
         Tool::new(
             "get_outgoing_calls",
-            cites(
-                "Get the calls a function makes: pass an `item` from `get_call_hierarchy`, or name the function (`name`, or `file_path` with `line`/`character`) and the call hierarchy is prepared for you.",
-            ),
+            "Get the calls a function makes: pass an `item` from `get_call_hierarchy`, or name the function (`name`, or `file_path` with `line`/`character`) and the call hierarchy is prepared for you.",
             hierarchy_item_schema("get_call_hierarchy"),
         ),
         // Type Hierarchy
         Tool::new(
             "get_type_hierarchy",
-            cites("Get type hierarchy"),
+            "Get type hierarchy",
             position_schema(json!({})),
         ),
         Tool::new(
             "get_subtypes",
-            cites(
-                "Get a type's subtypes: pass an `item` from `get_type_hierarchy`, or name the type (`name`, or `file_path` with `line`/`character`) and the type hierarchy is prepared for you.",
-            ),
+            "Get a type's subtypes: pass an `item` from `get_type_hierarchy`, or name the type (`name`, or `file_path` with `line`/`character`) and the type hierarchy is prepared for you.",
             hierarchy_item_schema("get_type_hierarchy"),
         ),
         Tool::new(
             "get_supertypes",
-            cites(
-                "Get a type's supertypes: pass an `item` from `get_type_hierarchy`, or name the type (`name`, or `file_path` with `line`/`character`) and the type hierarchy is prepared for you.",
-            ),
+            "Get a type's supertypes: pass an `item` from `get_type_hierarchy`, or name the type (`name`, or `file_path` with `line`/`character`) and the type hierarchy is prepared for you.",
             hierarchy_item_schema("get_type_hierarchy"),
         ),
         // Document Features
         Tool::new(
             "get_highlights",
-            cites("Get document highlights"),
+            "Get document highlights",
             position_schema(json!({})),
         ),
         Tool::new(
             "get_colors",
-            cites("Get document colors"),
+            "Get document colors",
             create_schema(json!({
                 "type": "object",
                 "properties": {"file_path": {"type": "string"}},
@@ -1757,7 +1728,7 @@ pub fn tool_list() -> Vec<Tool> {
         ),
         Tool::new(
             "get_folding_ranges",
-            cites("Get folding ranges"),
+            "Get folding ranges",
             create_schema(json!({
                 "type": "object",
                 "properties": {"file_path": {"type": "string"}},
@@ -1766,7 +1737,7 @@ pub fn tool_list() -> Vec<Tool> {
         ),
         Tool::new(
             "get_selection_range",
-            cites("Get selection ranges"),
+            "Get selection ranges",
             create_schema(json!({
                 "type": "object",
                 "properties": {
@@ -1783,7 +1754,7 @@ pub fn tool_list() -> Vec<Tool> {
         ),
         Tool::new(
             "get_inlay_hints",
-            cites("Get inlay hints"),
+            "Get inlay hints",
             create_schema(json!({
                 "type": "object",
                 "properties": {
@@ -1798,7 +1769,7 @@ pub fn tool_list() -> Vec<Tool> {
         ),
         Tool::new(
             "get_links",
-            cites("Get document links"),
+            "Get document links",
             create_schema(json!({
                 "type": "object",
                 "properties": {"file_path": {"type": "string"}},
@@ -1841,7 +1812,7 @@ pub fn tool_list() -> Vec<Tool> {
         ),
         Tool::new(
             "rename_symbol",
-            "Rename a symbol across the whole workspace, applying the edits to every affected file on disk. Pass a symbol `name` (resolved from the code index) or an explicit line/character, plus `new_name`. Returns the per-file changes that were applied.",
+            "Rename a symbol across the whole workspace, applying the edits to every affected file on disk; returns the per-file changes applied.",
             create_schema(json!({
                 "type": "object",
                 "properties": {

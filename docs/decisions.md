@@ -432,15 +432,23 @@ The `instructions` the server sends at `initialize`
 (`crates/mcp/src/unified_server.rs`) open with the tool count by family, the line
 a client checks a build against, and end with where to start: the tools that find
 code by meaning or name, a file's summary, an entity and its calls, a symbol's
-definition and references, the index's state, and the Context Graph's notes. Each
-tool named there is one the build serves, which a test checks, and the language
-server tools are named only in a build that has them.
+definition and references and how to quote their positions, what an answer says
+when the workspace is not indexed (`notice`), and the Context Graph notes a search
+names (`context_notes`). Each tool named there is one the build serves, which a
+test checks, and the language server tools are named only in a build that has
+them. What holds for many tools — positions counted from 1 in `cite` and in the
+search results — is said there once, not in each tool's description.
 
 **Why:** 75 tools are too many for a model to hold at once, so clients announce
 them by name and load a definition on demand. A model reaches first for the tools
 it holds: with every tool behind a loading step it searches files with `grep` and
 reads them, though its prompt describes Devscriptor. Told which tools to start
-with, a client can keep those loaded, and a model can load them first.
+with, a client can keep those loaded, and a model can load them first. A client
+sends its announcements with every request, so a sentence repeated in 21
+descriptions costs 21 times over, on every turn. And a model told to check the
+index and the notes before it starts makes those calls on every task, while an
+answer that says when the index is missing, or that a note matches, costs a call
+only when it has something to say.
 
 ## Code patterns
 

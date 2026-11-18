@@ -398,10 +398,13 @@ impl CoreModule {
             .get("path")
             .and_then(serde_json::Value::as_str)
             .unwrap_or(".");
-        // `.` is the whole index; another path keeps the entities under it.
-        // Passed on as given, a relative path would be resolved against nothing it
-        // is meant to be, and one that does not exist would find no dead code.
-        let target = Self::scope_directory(path)?
+        // `.` is the workspace's project; another path keeps the entities
+        // under it. Passed on as given, a relative path would be resolved
+        // against nothing it is meant to be, and one that does not exist would
+        // find no dead code.
+        let target = self
+            .scope_directory(path)
+            .await?
             .map_or_else(|| ".".to_string(), |dir| dir.to_string_lossy().into_owned());
         // Findings below this confidence are dropped: an unreferenced private
         // entity scores 0.9, an exported one 0.5, one whose name is written
@@ -488,8 +491,9 @@ impl CoreModule {
         // Optional: restrict results to a single file (substring match, so a
         // relative fragment matches the absolute stored path).
         let file_path = args.get("file_path").and_then(serde_json::Value::as_str);
-        // `.` is the whole index; another path keeps the functions under it.
-        let under = Self::scope_directory(path)?;
+        // `.` is the workspace's project; another path keeps the functions
+        // under it.
+        let under = self.scope_directory(path).await?;
 
         info!("Analyzing complexity in {} (file: {:?})", path, file_path);
 

@@ -309,9 +309,14 @@ impl UnifiedMcpServer {
         })
     }
 
-    /// Create a new unified server with default core module.
+    /// Create a new unified server with default core module, over the shared
+    /// default database, for the project in the working directory.
     pub fn new_default() -> anyhow::Result<Self> {
-        let state = Arc::new(crate::server::DevscriptorServerState::new()?);
+        let workspace = std::env::current_dir()?;
+        let state = Arc::new(crate::server::DevscriptorServerState::for_project(
+            crate::server::DevscriptorServerState::default_db_path(),
+            crate::project::ProjectSettings::for_workspace(&workspace, None),
+        )?);
         let core = Arc::new(CoreModule::new(state));
         Self::new(core)
     }
@@ -479,33 +484,40 @@ fn instructions() -> String {
 }
 
 /// How to begin: find code with the index before searching files by hand,
-/// follow it, check the index, and use the Context Graph. Every tool named here
-/// is one this build serves.
+/// follow it, and what answers say about the index and the Context Graph.
+/// Every tool named here is one this build serves; the answer fields named
+/// are [`ANSWER_FIELDS`].
 fn where_to_start() -> String {
     #[allow(unused_mut)]
     let mut lines = vec![
         "Find code with these tools before searching or reading files yourself:",
         "- semantic_search for a question in words; search_functions or search_classes \
          for a name; get_file_context for what a file holds. Each match gives its file \
-         and lines: read those, not whole directories.",
+         and lines, counted from 1: read those, not whole directories.",
         "- get_entity_details and get_relationships for what an entity is, what it calls \
          and what calls it, with the lines of each call.",
     ];
     #[cfg(feature = "lsp")]
     lines.push(
-        "- get_definition and get_references to follow a symbol through the language \
-         server; lsp_arch_detect first in a project, to start the servers it needs.",
+        "- get_definition and get_references to follow a symbol through its language \
+         server, started on first use. Their results carry `cite`, `path:line:column` \
+         counted from 1: quote it as is; `range` and `position` are LSP's, 0-based.",
     );
     lines.extend([
-        "- get_statistics says whether the workspace is indexed: with no entities, run \
-         scan_codebase first, or start_analysis for a large repository. The index then \
-         follows edits by itself.",
-        "- search_context recalls the notes earlier sessions recorded about the code; \
-         add_context_note records a decision, a constraint or a fixed bug for later ones.",
+        "- An answer says when the workspace is not indexed, in `notice`: scan_codebase \
+         indexes it, or start_analysis in the background for a large repository. The \
+         index then follows edits by itself.",
+        "- A search names the Context Graph notes its query matches, in `context_notes`: \
+         search_context recalls them. add_context_note records a decision, a constraint \
+         or a fixed bug for later sessions.",
         "If tools are loaded on demand, load these first.",
     ]);
     lines.join("\n")
 }
+
+/// The fields of tool answers that [`where_to_start`] names.
+#[cfg(test)]
+const ANSWER_FIELDS: &[&str] = &["context_notes"];
 
 /// What the server serves, by tool family.
 fn inventory() -> String {
@@ -690,6 +702,7 @@ mod tests {
         let named: Vec<&str> = text
             .split(|c: char| !(c.is_ascii_lowercase() || c == '_'))
             .filter(|word| word.contains('_') && !word.starts_with('_') && !word.ends_with('_'))
+            .filter(|word| !ANSWER_FIELDS.contains(word))
             .collect();
         assert!(!named.is_empty());
         for name in named {
@@ -704,7 +717,7 @@ mod tests {
             assert!(text.contains(name), "{name}");
         }
         #[cfg(feature = "lsp")]
-        for name in ["get_definition", "get_references", "lsp_arch_detect"] {
+        for name in ["get_definition", "get_references"] {
             assert!(text.contains(name), "{name}");
         }
     }

@@ -487,7 +487,8 @@ runs the query and collects the `file_path`s the answer names; for
 `get_relationships`, the files of the entity and of each edge's other end. An
 analysis of the whole index, whose findings depend on files it does not name,
 first has `DevscriptorServerState::reconcile_unwatched` scan incrementally each
-scanned root in its scope that no watcher on native events covers. It then
+scanned root in its scope that no watcher on native events covers; its `.` is the
+workspace's project (`DevscriptorServerState::project_directory`). It then
 calls `ensure_fresh`, which:
 
 1. compares each file's size and modification time with its manifest row, and,
@@ -510,9 +511,11 @@ outside every indexed root, excluded by the scan rules, unparsable, or still
 changing under it. The LSP position tools run the same check on the candidate
 files of a symbol `name` before resolving it to a position.
 
-The re-indexes go through one incremental, structural pipeline per server, which
-a watcher without embeddings shares, so their runs never overlap: each derives its
-edges from the index as the run before it left it.
+The re-indexes of the workspace's project go through one incremental, structural
+pipeline per server, which a watcher without embeddings shares, so their runs never
+overlap: each derives its edges from the index as the run before it left it. Each
+other project in the database has a pipeline of its own, in the configuration of
+the `devscriptor.yaml` at its scanned root (`DevscriptorServerState::pipeline_for`).
 
 ---
 

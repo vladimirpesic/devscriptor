@@ -336,15 +336,25 @@ impl CoreModule {
 
     /// The directory a scoping `path` argument names — `find_dead_code`'s,
     /// `analyze_complexity`'s, `analyze_code`'s — resolved as every tool path
-    /// is ([`Self::validate_tool_path`]); `None` for `.`, the whole index.
+    /// is ([`Self::validate_tool_path`]). `.` is the workspace's project
+    /// ([`DevscriptorServerState::project_directory`](crate::server::DevscriptorServerState::project_directory)):
+    /// `None`, the whole index, when the index holds no other.
     ///
     /// # Errors
     /// The path is invalid, does not exist, or is no directory: passed on, it
     /// found nothing, which read as a clean result.
-    fn scope_directory(path: &str) -> Result<Option<std::path::PathBuf>, ToolError> {
+    async fn scope_directory(&self, path: &str) -> Result<Option<std::path::PathBuf>, ToolError> {
         if path == "." {
-            return Ok(None);
+            return Ok(self.state.project_directory().await);
         }
+        Self::named_directory(path).map(Some)
+    }
+
+    /// The directory `path` names, resolved as every tool path is.
+    ///
+    /// # Errors
+    /// As [`Self::scope_directory`].
+    fn named_directory(path: &str) -> Result<std::path::PathBuf, ToolError> {
         let resolved = Self::validate_tool_path(path)?;
         if !resolved.exists() {
             return Err(ToolError::InvalidParams(format!(
@@ -356,7 +366,7 @@ impl CoreModule {
                 "Path is not a directory: {path}"
             )));
         }
-        Ok(Some(resolved))
+        Ok(resolved)
     }
 
     /// Validate a tool path confined to a project root.
@@ -581,30 +591,51 @@ fn reads_the_index(name: &str) -> bool {
     )
 }
 
-/// For an analysis of the whole index, the directory it analyzes (`None`:
-/// every scanned root): its findings depend on every file there, named or
-/// not, so the roots no watcher keeps current are scanned first
-/// ([`DevscriptorServerState::reconcile_unwatched`](crate::server::DevscriptorServerState::reconcile_unwatched)).
-/// `None` for any other tool, and for a `path` the tool will refuse.
-fn whole_index_scope(name: &str, arguments: Option<&Value>) -> Option<Option<std::path::PathBuf>> {
-    let path = arguments
-        .and_then(|args| args.get("path"))
-        .and_then(Value::as_str);
-    match name {
-        "find_dead_code" | "analyze_complexity" | "analyze_code" => {
-            CoreModule::scope_directory(path.unwrap_or(".")).ok()
-        }
-        // Its `path` filters by substring: a directory scopes the scan, any
-        // other text leaves every root in scope.
-        "get_statistics" => Some(
-            path.and_then(|path| CoreModule::scope_directory(path).ok())
-                .flatten(),
-        ),
-        _ => None,
-    }
+/// Whether the answer of the tool `name`, a search of the code for a
+/// `query`, names the Context Graph notes the query matches
+/// (`context_notes`). `query_with_context` answers from the notes itself.
+fn names_notes(name: &str) -> bool {
+    matches!(
+        name,
+        "semantic_search"
+            | "search_entities"
+            | "search_functions"
+            | "search_classes"
+            | "fuzzy_search"
+    )
 }
 
+/// The most Context Graph notes a search answer names.
+const NOTES_NAMED: usize = 3;
+
 impl CoreModule {
+    /// For an analysis of the whole index, the directory it analyzes (`None`:
+    /// every scanned root): its findings depend on every file there, named or
+    /// not, so the roots no watcher keeps current are scanned first
+    /// ([`DevscriptorServerState::reconcile_unwatched`](crate::server::DevscriptorServerState::reconcile_unwatched)).
+    /// `None` for any other tool, and for a `path` the tool will refuse.
+    async fn whole_index_scope(
+        &self,
+        name: &str,
+        arguments: Option<&Value>,
+    ) -> Option<Option<std::path::PathBuf>> {
+        let path = arguments
+            .and_then(|args| args.get("path"))
+            .and_then(Value::as_str);
+        match name {
+            "find_dead_code" | "analyze_complexity" | "analyze_code" => {
+                self.scope_directory(path.unwrap_or(".")).await.ok()
+            }
+            // Its `path` filters by substring: a directory scopes the scan,
+            // and any other text the workspace's project.
+            "get_statistics" => match path.map(Self::named_directory) {
+                Some(Ok(directory)) => Some(Some(directory)),
+                _ => Some(self.state.project_directory().await),
+            },
+            _ => None,
+        }
+    }
+
     /// Universal tool handler — routes to the appropriate implementation.
     ///
     /// MCP-2: Rate limiting is checked before dispatch (10 req/sec, burst 20).
@@ -639,7 +670,7 @@ impl CoreModule {
         name: &str,
         arguments: Option<Value>,
     ) -> Result<ToolResult, ToolError> {
-        if let Some(scope) = whole_index_scope(name, arguments.as_ref()) {
+        if let Some(scope) = self.whole_index_scope(name, arguments.as_ref()).await {
             self.state.reconcile_unwatched(scope.as_deref()).await;
         }
         let (mut answer, report) = crate::freshness::fresh_answer(&self.state, || {
@@ -648,8 +679,38 @@ impl CoreModule {
         .await?;
         if let ToolResult::Success(payload) = &mut answer {
             report.annotate(payload);
+            if let Some(fields) = payload.as_object_mut() {
+                if let Some(notice) = self.state.unindexed_notice().await {
+                    fields.insert("notice".to_string(), Value::String(notice));
+                }
+                let query = arguments
+                    .as_ref()
+                    .and_then(|args| args.get("query"))
+                    .and_then(Value::as_str);
+                if let Some(query) = query.filter(|_| names_notes(name)) {
+                    let notes = self.matching_notes(query).await;
+                    if !notes.is_empty() {
+                        fields.insert("context_notes".to_string(), Value::from(notes));
+                    }
+                }
+            }
         }
         Ok(answer)
+    }
+
+    /// The Context Graph notes `query` matches, at most [`NOTES_NAMED`], each
+    /// as its type and title: enough to tell whether `search_context` would
+    /// recall something worth reading. None when the graph holds no note it
+    /// matches, or cannot be searched.
+    async fn matching_notes(&self, query: &str) -> Vec<String> {
+        self.state
+            .context_manager()
+            .search_notes(query, NOTES_NAMED)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|found| format!("{}: {}", found.note.note_type.as_str(), found.note.title))
+            .collect()
     }
 
     /// The answer of the tool `name` and the files it was read from: the

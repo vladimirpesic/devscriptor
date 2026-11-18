@@ -49,7 +49,7 @@ pub static CORE_TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         Tool::new(
             "search_entities",
-            "Search for entities in the database. `line_number` counts from 1, like the `cite` of LSP results",
+            "Search for entities in the database",
             to_arc_map(&SEARCH_ENTITIES_SCHEMA),
         ),
         Tool::new(
@@ -89,22 +89,22 @@ pub static CORE_TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         Tool::new(
             "search_functions",
-            "Search for functions. Result lines (`start_line`, `end_line`) count from 1, like the `cite` of LSP results",
+            "Search for functions by name",
             to_arc_map(&SEARCH_FUNCTIONS_SCHEMA),
         ),
         Tool::new(
             "search_classes",
-            "Search for classes/types. Result lines (`start_line`, `end_line`) count from 1, like the `cite` of LSP results",
+            "Search for classes and types by name",
             to_arc_map(&SEARCH_CLASSES_SCHEMA),
         ),
         Tool::new(
             "fuzzy_search",
-            "Fuzzy search across entities. Result lines (`start_line`, `end_line`) count from 1, like the `cite` of LSP results",
+            "Fuzzy search across entities, for a name whose spelling is unknown",
             to_arc_map(&FUZZY_SEARCH_SCHEMA),
         ),
         Tool::new(
             "semantic_search",
-            "Semantic search using embeddings. Result lines (`start_line`, `end_line`) count from 1, like the `cite` of LSP results",
+            "Search the code for a question in words, by meaning and keywords",
             to_arc_map(&SEMANTIC_SEARCH_SCHEMA),
         ),
         Tool::new(
@@ -263,7 +263,7 @@ pub static ANALYZE_CODE_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
             "path": {
                 "type": "string",
                 "default": ".",
-                "description": "Directory whose findings are returned — those located under it; `.`, the default, is the whole index"
+                "description": "Directory whose findings are returned — those located under it; `.`, the default, is the workspace's project"
             },
             "analysis_type": {
                 "type": "string",
@@ -283,7 +283,7 @@ pub static GET_STATISTICS_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
         "properties": {
             "path": {
                 "type": "string",
-                "description": "Optional path fragment; counts only entities whose file path contains it"
+                "description": "Path fragment: counts only entities whose file path contains it. Without one, the workspace's project"
             }
         }
     })
@@ -556,7 +556,7 @@ pub static FIND_DEAD_CODE_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
             "path": {
                 "type": "string",
                 "default": ".",
-                "description": "Directory whose functions and classes are analyzed (what uses them is looked for everywhere); `.`, the default, is the whole index"
+                "description": "Directory whose functions and classes are analyzed (what uses them is looked for everywhere); `.`, the default, is the workspace's project"
             },
             "min_confidence": {
                 "type": "number",
@@ -580,7 +580,7 @@ pub static ANALYZE_COMPLEXITY_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
             "path": {
                 "type": "string",
                 "default": ".",
-                "description": "Directory whose functions are analyzed; `.`, the default, is the whole index"
+                "description": "Directory whose functions are analyzed; `.`, the default, is the workspace's project"
             },
             "file_path": {
                 "type": "string",

@@ -243,7 +243,8 @@ before it had says so (`reindex_pending: true`). The LSP tools wait the same way
 so that a language server hears of the changes first. An analysis of the whole
 index depends on files it does not name, so where no watcher on native events
 covers a scanned root in its scope (`--no-watch`, a polling watch, another
-project in the database), it scans that root incrementally first.
+project in the database), it scans that root incrementally first, in its own
+project's configuration.
 
 The answer's files are then checked against the disk. A file whose size or
 modification time differs from what the last scan recorded is re-indexed, within

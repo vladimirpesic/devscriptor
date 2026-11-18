@@ -146,8 +146,9 @@ impl CoreModule {
     ) -> Result<ToolResult, ToolError> {
         let args = arguments.ok_or_else(|| ToolError::InvalidParams("Missing arguments".into()))?;
 
-        // `path` defaults to `.`, the whole index, as `find_dead_code`'s and
-        // `analyze_complexity`'s do: the schema does not declare it required.
+        // `path` defaults to `.`, the workspace's project, as `find_dead_code`'s
+        // and `analyze_complexity`'s do: the schema does not declare it
+        // required.
         let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let analysis_type = args
@@ -155,8 +156,11 @@ impl CoreModule {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidParams("Missing 'analysis_type' argument".into()))?;
 
-        // `.` is the whole index; another path keeps the findings under it.
-        let target = Self::scope_directory(path)?
+        // `.` is the workspace's project; another path keeps the findings
+        // under it.
+        let target = self
+            .scope_directory(path)
+            .await?
             .map_or_else(|| ".".to_string(), |dir| dir.to_string_lossy().into_owned());
         info!("Analyzing code at: {} (type: {})", path, analysis_type);
 
@@ -221,13 +225,21 @@ impl CoreModule {
         arguments: Option<Value>,
     ) -> Result<ToolResult, ToolError> {
         let args = arguments.unwrap_or_default();
-        // Optional: scope the counts to entities whose file path contains `path`.
-        let path = args.get("path").and_then(|v| v.as_str());
+        // The counts of the entities whose file path contains `path`; without
+        // one, or with `.`, of the workspace's project.
+        let path = match args.get("path").and_then(|v| v.as_str()) {
+            Some(path) if path != "." => Some(path.to_string()),
+            _ => self
+                .state
+                .project_directory()
+                .await
+                .map(|directory| directory.join("").to_string_lossy().into_owned()),
+        };
 
         info!("Getting statistics (path: {:?})", path);
 
         let db = self.state.database();
-        let stats = match path {
+        let stats = match &path {
             Some(path) => db.get_stats_for_path(path).await,
             None => db.get_stats().await,
         };
@@ -240,7 +252,7 @@ impl CoreModule {
         };
 
         let response = StatisticsResponse {
-            path: path.map(ToString::to_string),
+            path,
             total_files,
             total_entities,
             total_relationships,

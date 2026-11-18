@@ -146,6 +146,25 @@ broken changes nothing, and `health_check` reports the error under `project_conf
 until it is fixed; a file broken from the start leaves the defaults in force. The
 server keeps serving either way.
 
+### Other projects in the database
+
+The shared default database holds every project scanned into it, and a database
+`--database` names can hold several too. A server works for its workspace's
+project: the deepest scanned root the workspace lies in, else the workspace
+itself.
+
+- **The analyses of the whole index** (`find_dead_code`, `analyze_complexity`,
+  `analyze_code`) take the workspace's project for `.`, their default `path`, and
+  `get_statistics` counts it when given no `path`. When every scanned root lies in
+  it, that is the whole index. Another project is analyzed when `path` names it.
+- **The searches** look through every project in the database. When the
+  workspace is not indexed, every answer from the index says so in `notice`, with
+  the `scan_codebase` call that indexes it: a match then comes from another
+  project, and finding nothing proves nothing.
+- **Another project's files** are re-indexed, when an answer finds them changed,
+  in that project's configuration: the `devscriptor.yaml` at its scanned root, as
+  `devscriptor scan` of the root reads it, read again when it changes.
+
 ### stdio hygiene
 
 `devscriptor mcp` serves JSON-RPC on **stdout**. All logging goes to **stderr**,
@@ -307,6 +326,13 @@ when it has something to say, tell what happened:
 | `stale_files` | Files that changed on disk but were not re-indexed: the answer may be older than them, so read them from disk before relying on it |
 | `reindex_pending` | `true`: the watcher was still re-indexing changes when the answer was read, so it may be older than files it does not name; `get_watch_status` tells when it is done |
 
+Two more fields tell what the index holds:
+
+| Field | Meaning |
+| --- | --- |
+| `notice` | The workspace is not indexed, and how to index it ([Other projects in the database](#other-projects-in-the-database)) |
+| `context_notes` | In the answers of `semantic_search`, `search_entities`, `search_functions`, `search_classes` and `fuzzy_search`: the Context Graph notes the `query` matches, at most 3, each as `<note_type>: <title>`; `search_context` recalls them in full |
+
 An answer re-indexes at most 20 files and waits for them at most
 `DEVSCRIPTOR_FRESHNESS_BUDGET_MS` milliseconds (default 250). A re-index that
 takes longer finishes in the background, and the next answer is current. Files
@@ -327,7 +353,7 @@ watcher ([Watcher](watcher.md)) keeps most files current before any answer asks.
 | Tool | Parameters | Description |
 | --- | --- | --- |
 | `scan_codebase` | `path`\*, `extensions`, `exclude_patterns` | Scan a codebase and build the entity database |
-| `analyze_code` | `analysis_type`\*, `path` | Run an analysis and return its findings under the directory `path` (`.`, the default, is the whole index), each with its `file_path`, `line` and `details` |
+| `analyze_code` | `analysis_type`\*, `path` | Run an analysis and return its findings under the directory `path` (`.`, the default, is the [workspace's project](#other-projects-in-the-database)), each with its `file_path`, `line` and `details` |
 | `start_analysis` | `path`\*, `extensions`, `exclude_patterns` | Start a background analysis job |
 | `get_analysis_progress` | `job_id`\*, `wait`, `timeout` | Get the progress of an analysis job |
 | `list_analysis_jobs` | `limit` | List all analysis jobs |
@@ -379,7 +405,7 @@ get_analysis_progress(job_id, wait=true, timeout=30)   # poll until complete
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
-| `get_statistics` | `path` | Database statistics; `path` scopes the counts to entities whose file path contains it |
+| `get_statistics` | `path` | Index statistics: of the entities whose file path contains `path`, else of the workspace's project |
 | `health_check` | *(none)* | Check server health (database, jobs, version, the project configuration, and `daemon_pid` under a shared daemon) |
 
 `health_check` returns `status`, `version`, `database`, `jobs`, `devscriptor`,
@@ -390,8 +416,9 @@ it adds `daemon_pid`, the daemon's process id, the same in every session the dae
 serves; `jobs` then counts the analyses of all of them.
 
 `get_statistics` returns `total_files`, `total_entities`, `total_relationships`,
-and echoes `path` when scoped. An unmatched `path` returns zeros, not the global
-totals.
+and echoes `path` when scoped: the one given, or the workspace's project when the
+database holds other projects too. An unmatched `path` returns zeros, not the
+global totals.
 
 ### Search & Embeddings (6)
 
@@ -440,8 +467,8 @@ match can be cited as `file:line` without reading the file.
 | `analyze_complexity` | `path`, `file_path`, `top_n` | Rank the functions in scope by cyclomatic complexity |
 
 `find_dead_code` reports the functions and classes of the directory `path`
-(`.`, the default, is the whole index; a path that is not a directory is an
-error) that nothing reaches; what reaches them is looked for everywhere. A
+(`.`, the default, is the [workspace's project](#other-projects-in-the-database); a
+path that is not a directory is an error) that nothing reaches; what reaches them is looked for everywhere. A
 call, a reference — a function passed as a value counts — a use or a supertype
 reaches an entity, and so do the runtime, frameworks and test runners: test
 code (test files and directories, `test_total`, `testTotal`, Go's `TestTotal`),
@@ -477,8 +504,8 @@ by default (Kotlin, Scala, PHP, Ruby, F#), anything not `private` or
 `internal`. `min_confidence` (default `0.5`) drops findings below the
 threshold, so `0.9` returns private entities only and `0.3` every finding.
 
-`analyze_complexity` counts every function in scope — the whole index, the
-directory `path` names, or the file `file_path` matches — and returns
+`analyze_complexity` counts every function in scope — the workspace's project,
+the directory `path` names, or the file `file_path` matches — and returns
 `total_functions_analyzed`, their `average_complexity`, the `top_n` most
 complex whatever their score, `threshold` (10: a function above it is `medium`
 risk, above twice it `high`) and how many are `functions_above_threshold`.
@@ -725,12 +752,12 @@ Point your MCP client at a **75-tool** entry point (see
 After the tool count, the server's `instructions`, which a client may pass to its
 model, say where to start: `semantic_search`, `search_functions` and
 `search_classes` to find code, `get_file_context` for a file, `get_entity_details`
-and `get_relationships` for an entity and its calls, `get_definition`,
-`get_references` and `lsp_arch_detect` for the language servers, `get_statistics`
-for the index's state, and `search_context` and `add_context_note` for the
-Context Graph. A client that loads tools on demand should load these first, or
-keep them loaded: a model reaches first for the tools it holds, and leaves a tool
-it must load first mostly unused.
+and `get_relationships` for an entity and its calls, `get_definition` and
+`get_references` for the language servers and how to quote their `cite`,
+`scan_codebase` when an answer's `notice` says the workspace is not indexed, and
+`search_context` and `add_context_note` for the Context Graph. A client that loads
+tools on demand should load these first, or keep them loaded: a model reaches
+first for the tools it holds, and leaves a tool it must load first mostly unused.
 
 **Claude Desktop / Claude Code / Cline:**
 

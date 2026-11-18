@@ -166,8 +166,20 @@ pub struct DevscriptorServerState {
     /// The pipeline the freshness check, and a watcher without embeddings,
     /// re-index through; made on first use.
     structural_pipeline: tokio::sync::OnceCell<Arc<CodebasePipeline>>,
+    /// For each scanned root of another project in the database, the
+    /// pipeline that re-indexes it, in that project's own configuration
+    /// ([`Self::pipeline_for`]); made on first use.
+    other_projects: Mutex<HashMap<PathBuf, Arc<OtherProject>>>,
     /// How long an answer waits for its changed files to be re-indexed.
     freshness_budget: std::time::Duration,
+}
+
+/// A scanned root of another project than the workspace's, and how the
+/// server re-indexes it: as `devscriptor scan` would, in the configuration
+/// of the `devscriptor.yaml` there.
+struct OtherProject {
+    settings: ProjectSettings,
+    pipeline: Arc<CodebasePipeline>,
 }
 
 /// This process's id, once it serves as the workspace's daemon
@@ -234,12 +246,6 @@ struct CodeWatchHandle {
 }
 
 impl DevscriptorServerState {
-    /// Create a new server state with default database
-    pub fn new() -> anyhow::Result<Self> {
-        let db_path = Self::default_db_path();
-        Self::with_db_path(db_path)
-    }
-
     /// Create a new server state with specific database path
     pub fn with_db_path(db_path: PathBuf) -> anyhow::Result<Self> {
         Self::for_project(db_path, ProjectSettings::none())
@@ -335,6 +341,7 @@ impl DevscriptorServerState {
             watched_workspace: Arc::new(Mutex::new(None)),
             workspace_checked: Arc::new(Mutex::new(None)),
             structural_pipeline: tokio::sync::OnceCell::new(),
+            other_projects: Mutex::new(HashMap::new()),
             freshness_budget: crate::freshness::budget_from_env(),
         })
     }
@@ -357,6 +364,12 @@ impl DevscriptorServerState {
     /// The incremental pipeline over the shared database, with embeddings
     /// (for a watcher that embeds) or without, in the project's scope.
     fn incremental_pipeline_config(&self, embed: bool) -> PipelineConfig {
+        self.pipeline_config(embed, &self.project.current())
+    }
+
+    /// The incremental pipeline over the shared database, with embeddings
+    /// or without, in the scope `project` sets.
+    fn pipeline_config(&self, embed: bool, project: &ProjectConfig) -> PipelineConfig {
         let mut config = PipelineConfig {
             database: DatabaseConfig {
                 path: self.db_path.to_string_lossy().to_string(),
@@ -370,7 +383,7 @@ impl DevscriptorServerState {
             bulk_load: false,
             ..PipelineConfig::default()
         };
-        self.project.current().apply_to(&mut config);
+        project.apply_to(&mut config);
         config
     }
 
@@ -433,6 +446,108 @@ impl DevscriptorServerState {
             })
             .await?;
         Ok(Arc::clone(pipeline))
+    }
+
+    /// The directory the server works in, symlinks resolved: where its
+    /// client started it. None for a server with no project.
+    #[must_use]
+    pub fn workspace(&self) -> Option<&Path> {
+        self.project.workspace()
+    }
+
+    /// The directory an analysis of the whole index (`path` `.`) takes:
+    /// the workspace's project, which is the deepest scanned root the
+    /// workspace lies in, else the workspace itself. A database can hold
+    /// other projects, which are not the workspace's to analyze. `None`, the
+    /// whole index, when every scanned root lies in that directory, and for a
+    /// server with no workspace.
+    pub async fn project_directory(&self) -> Option<PathBuf> {
+        let workspace = self.workspace()?;
+        let roots = self.database.indexed_roots().await.unwrap_or_default();
+        let directory = roots
+            .iter()
+            .filter(|root| workspace.starts_with(root))
+            .max_by_key(|root| root.components().count())
+            .map_or(workspace, PathBuf::as_path);
+        (!roots.iter().all(|root| root.starts_with(directory))).then(|| directory.to_path_buf())
+    }
+
+    /// What an answer from the index should say when the workspace is not
+    /// indexed: nothing at all is, or only other directories are, so a match
+    /// comes from another project and a search that finds nothing proves
+    /// nothing. `None` when a scanned root holds the workspace or lies in
+    /// it, and for a server with no workspace once anything is indexed.
+    pub async fn unindexed_notice(&self) -> Option<String> {
+        let roots = self.database.indexed_roots().await.ok()?;
+        let workspace = self.workspace();
+        if roots.is_empty() {
+            let suggestion = workspace.map_or_else(String::new, |workspace| {
+                format!(", the workspace (`{}`) for one", workspace.display())
+            });
+            return Some(format!(
+                "Nothing is indexed yet: scan_codebase indexes a directory{suggestion}."
+            ));
+        }
+        let workspace = workspace?;
+        let indexed = roots
+            .iter()
+            .any(|root| workspace.starts_with(root) || root.starts_with(workspace));
+        (!indexed).then(|| {
+            format!(
+                "The workspace (`{0}`) is not indexed: any match comes from another \
+                 scanned directory. scan_codebase with `path` `{0}` indexes it.",
+                workspace.display()
+            )
+        })
+    }
+
+    /// Whether the scanned root `root` belongs to the workspace's project:
+    /// it holds the workspace or lies in it. Every root does for a server
+    /// with no workspace.
+    fn in_workspace(&self, root: &Path) -> bool {
+        self.workspace()
+            .is_none_or(|workspace| workspace.starts_with(root) || root.starts_with(workspace))
+    }
+
+    /// The pipeline that re-indexes the scanned root `root`: the structural
+    /// one ([`Self::structural_pipeline`]), in the workspace's
+    /// configuration, for a root of the workspace's project; for one of
+    /// another project, a pipeline of its own in the configuration of that
+    /// project's `devscriptor.yaml`, as `devscriptor scan` of the root takes
+    /// it, read again when it changes.
+    ///
+    /// # Errors
+    /// Returns an error if the pipeline cannot be built.
+    pub async fn pipeline_for(&self, root: &Path) -> anyhow::Result<Arc<CodebasePipeline>> {
+        if self.in_workspace(root) {
+            return self.structural_pipeline().await;
+        }
+        let known = self.other_projects.lock().get(root).cloned();
+        let other = match known {
+            Some(other) => {
+                if other.settings.refresh() == Refresh::Applied {
+                    let scope =
+                        ScanScope::of(&self.pipeline_config(false, &other.settings.current()));
+                    other.pipeline.set_scope(scope).await;
+                }
+                other
+            }
+            None => {
+                let settings = ProjectSettings::for_workspace(root, None);
+                let pipeline = Arc::new(CodebasePipeline::with_database(
+                    self.pipeline_config(false, &settings.current()),
+                    self.database.clone(),
+                )?);
+                let other = Arc::new(OtherProject { settings, pipeline });
+                Arc::clone(
+                    self.other_projects
+                        .lock()
+                        .entry(root.to_path_buf())
+                        .or_insert(other),
+                )
+            }
+        };
+        Ok(Arc::clone(&other.pipeline))
     }
 
     /// Watch `workspace` by itself, so that the index follows the edits of a
@@ -653,10 +768,11 @@ impl DevscriptorServerState {
 
     /// Bring the scanned roots that `scope` touches — that hold it or lie in
     /// it; every root with `None` — up to date with the disk, each with an
-    /// incremental scan, but for those a watcher on native events keeps
-    /// current: what an analysis of the whole index needs, as its findings
-    /// depend on files it does not name. A root that is not a directory now
-    /// is left as the index holds it. A scan that fails is logged.
+    /// incremental scan in its project's configuration ([`Self::pipeline_for`]),
+    /// but for those a watcher on native events keeps current: what an
+    /// analysis of the whole index needs, as its findings depend on files it
+    /// does not name. A root that is not a directory now is left as the index
+    /// holds it. A scan that fails is logged.
     pub async fn reconcile_unwatched(&self, scope: Option<&Path>) {
         let roots = match self.database.indexed_roots().await {
             Ok(roots) => roots,
@@ -692,18 +808,16 @@ impl DevscriptorServerState {
                 chosen.push(root);
             }
         }
-        if chosen.is_empty() {
-            return;
-        }
-        let pipeline = match self.structural_pipeline().await {
-            Ok(pipeline) => pipeline,
-            Err(e) => {
-                tracing::warn!("Not bringing the index up to date: {e}");
-                return;
-            }
-        };
         for root in chosen {
-            if let Err(e) = pipeline.analyze_directory(&root).await {
+            let scanned = match self.pipeline_for(&root).await {
+                Ok(pipeline) => pipeline
+                    .analyze_directory(&root)
+                    .await
+                    .map(drop)
+                    .map_err(anyhow::Error::from),
+                Err(e) => Err(e),
+            };
+            if let Err(e) = scanned {
                 tracing::warn!("Bringing {} up to date failed: {e}", root.display());
             }
         }
