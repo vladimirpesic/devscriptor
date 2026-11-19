@@ -8,7 +8,6 @@
 //! installed from the mirror alone, through the downloader's own code: a
 //! checksum that does not match, an archive the manifest misnames, or one
 //! without the server's `bin_path` or its license files fails the test.
-#![cfg(feature = "lsp")]
 
 use devscriptor_lsp::manager::mirror;
 use devscriptor_lsp::manager::registry::LicenseFile;

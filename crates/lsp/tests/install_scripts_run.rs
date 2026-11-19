@@ -4,7 +4,7 @@
 //! run whole: the function that decides what to install is taken from each
 //! script and run on its own, against a fake `dpkg`. The macOS installers run
 //! whole, with a fake `brew` that records what it is asked to install.
-#![cfg(all(unix, feature = "lsp"))]
+#![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};

@@ -3,7 +3,6 @@
 //! typescript-language-server, with no project open, answers every query "No
 //! Project", with tsserver's JavaScript stack, so a query for a Rust function
 //! asked of it alone would fail.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::Path;

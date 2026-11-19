@@ -1,7 +1,7 @@
 //! What a language server would leave in a project is kept out of it, or out
 //! of git, before it starts: rust-analyzer's cargo resolves into a lock file
 //! of its own, and Metals' `.metals/` is ignored.
-#![cfg(all(feature = "lsp", unix))]
+#![cfg(unix)]
 
 use std::collections::HashMap;
 use std::path::Path;

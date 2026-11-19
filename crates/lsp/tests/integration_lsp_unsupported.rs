@@ -7,7 +7,6 @@
 //! server that answers all the same is taken at its word, and the error of a
 //! request it does declare is its own, but for `-32601`: sql-language-server
 //! declares renames it has no handler for.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::Path;

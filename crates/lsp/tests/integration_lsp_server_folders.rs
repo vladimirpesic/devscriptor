@@ -7,7 +7,6 @@
 //! rooted at `src/`, the compilation database Devscriptor writes would list
 //! `src/` alone, without the project's `include/`, and clangd would find no
 //! caller of anything its headers declare.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

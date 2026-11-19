@@ -4,7 +4,6 @@
 //! session, and started again by the next request, without using up the
 //! restarts a crashing server is allowed; with a cap, starting one more server
 //! stops the least recently used.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::Path;

@@ -3,7 +3,6 @@
 //! These tests cover spawning, shutdown, state transitions, and communication
 //! with LSP servers. Tests that require external LSP servers will skip if the
 //! server is not available on the system.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::PathBuf;

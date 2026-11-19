@@ -1,7 +1,7 @@
 //! A language server runs with a temporary directory of its own, removed with
 //! it: rust-analyzer leaves empty `proc-macro-srv*` directories in `/tmp` even
 //! when it exits cleanly, and a server's leftovers must not pile up there.
-#![cfg(all(feature = "lsp", unix))]
+#![cfg(unix)]
 
 use std::collections::HashMap;
 

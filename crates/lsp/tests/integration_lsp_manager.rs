@@ -2,7 +2,6 @@
 //!
 //! These tests cover `LspManager`, `ServerRegistry`, and project detection
 //! functionality without requiring actual LSP server processes.
-#![cfg(feature = "lsp")]
 
 use devscriptor_lsp::manager::{InstallationResult, LspManager, ServerRegistry, SourceType};
 use tempfile::TempDir;

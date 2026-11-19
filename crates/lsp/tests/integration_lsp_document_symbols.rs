@@ -5,7 +5,6 @@
 //! `luhn_check_digit` at the `int` before it, rust-analyzer a function at its
 //! `pub`, and a hover asked there found nothing. Devscriptor takes the tree,
 //! where each symbol has its name's range, and flattens it parent first.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::Path;

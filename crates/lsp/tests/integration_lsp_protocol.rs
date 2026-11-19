@@ -2,7 +2,6 @@
 //!
 //! These tests cover `LspTransport`, message parsing, serialization,
 //! request ID generation, and header parsing.
-#![cfg(feature = "lsp")]
 
 use devscriptor_lsp::lsp::protocol::{
     ErrorObject, InboundMessage, JSONRPC_VERSION, LspHeader, MAX_MESSAGE_SIZE, NotificationMessage,

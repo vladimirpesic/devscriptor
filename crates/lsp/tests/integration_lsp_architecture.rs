@@ -2,7 +2,6 @@
 //!
 //! These tests cover `LspArchitectureManager`, `LspResolver`, `quick_check`,
 //! `batch_check`, `detect_system_lsp`, and `ServerStatus`.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::PathBuf;

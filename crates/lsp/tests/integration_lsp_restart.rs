@@ -3,7 +3,6 @@
 //! A crashed server does not leave its client registered, failing every later
 //! request with "Command channel closed" until `restart_server` is called. A
 //! server that dies on every start must not be respawned forever.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::time::Duration;

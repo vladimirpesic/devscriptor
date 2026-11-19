@@ -8,7 +8,6 @@
 //!
 //! These tests read the scripts as text. They cannot prove a script *runs*, but
 //! they do catch the class of drift that is invisible until a release is packaged.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

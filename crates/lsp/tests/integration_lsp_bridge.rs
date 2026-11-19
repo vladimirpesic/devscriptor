@@ -2,7 +2,6 @@
 //!
 //! These tests cover Translator, `ClientRegistry`, `DocumentState`,
 //! and path/URI conversion functions.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::PathBuf;

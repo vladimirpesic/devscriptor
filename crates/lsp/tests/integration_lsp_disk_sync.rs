@@ -7,7 +7,6 @@
 //! and tells the server of the changes on disk noted since its last request
 //! (`workspace/didChangeWatchedFiles`). A server that held a deleted file open,
 //! or was never told of an edit, would answer about code that is gone.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

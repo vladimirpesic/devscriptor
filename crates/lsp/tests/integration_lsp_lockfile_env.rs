@@ -1,7 +1,7 @@
 //! A lock file the user's environment names for cargo is theirs: rust-analyzer
 //! is started with it, not with one in its build directory. A test
 //! binary of its own, as it sets a variable of the process.
-#![cfg(all(feature = "lsp", unix))]
+#![cfg(unix)]
 
 use std::collections::HashMap;
 use std::path::Path;

@@ -11,10 +11,6 @@ readme = "../../docs/lsp.md"
 keywords = ["lsp", "language-server", "code-intelligence", "mcp", "devscriptor"]
 categories = ["development-tools", "text-editors"]
 
-[features]
-default = ["lsp"]
-lsp = []
-
 [dependencies]
 # Async runtime
 # Workspace tokio already provides process/io-std/signal/…; lsp only adds

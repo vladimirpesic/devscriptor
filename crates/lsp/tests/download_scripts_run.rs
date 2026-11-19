@@ -11,7 +11,7 @@
 //! says otherwise, `curl` saves a placeholder for an archive and fails for
 //! everything else (release lookups, published checksums), and `cs` and
 //! `unzip` fail. Every other tool a server comes from is absent.
-#![cfg(all(unix, feature = "lsp"))]
+#![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};

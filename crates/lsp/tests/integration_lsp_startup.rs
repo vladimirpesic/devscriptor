@@ -4,7 +4,6 @@
 //! memory and time for servers most sessions never use — up to about 1.8 GB
 //! each — though each also starts on first use. Startup is lazy; eager startup
 //! is a setting.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::Path;

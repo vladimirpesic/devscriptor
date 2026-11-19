@@ -5,7 +5,6 @@
 //! only decline. A server's configuration is sent in
 //! `workspace/didChangeConfiguration` once it is initialized, and given to its
 //! `workspace/configuration` requests, section by section.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::Path;

@@ -1,6 +1,5 @@
 //! A `.m` file goes to the server for Objective-C only when it is
 //! Objective-C: MATLAB uses the extension too.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::Path;

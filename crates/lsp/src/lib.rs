@@ -19,41 +19,25 @@
 //! }
 //! ```
 
-#[cfg(feature = "lsp")]
 pub mod bridge;
-#[cfg(feature = "lsp")]
 pub mod config;
-#[cfg(feature = "lsp")]
 pub mod error;
-#[cfg(feature = "lsp")]
 pub mod generated_registry;
-#[cfg(feature = "lsp")]
 pub mod languages;
-#[cfg(feature = "lsp")]
 pub mod lsp;
-#[cfg(feature = "lsp")]
 pub mod lsp_architecture;
-#[cfg(feature = "lsp")]
 pub mod manager;
-#[cfg(feature = "lsp")]
 pub mod mcp;
-#[cfg(feature = "lsp")]
 pub mod user_dirs;
 
-#[cfg(feature = "lsp")]
 pub use bridge::{DiskChange, Translator};
-#[cfg(feature = "lsp")]
 pub use config::{Config, LspServerConfig, ServerHeuristics, WorkspaceConfig};
-#[cfg(feature = "lsp")]
 pub use error::{Error, LspError, Result, ServerSpawnFailure};
-#[cfg(feature = "lsp")]
 pub use manager::{InstallationResult, InstalledServer, LspManager};
 
-#[cfg(feature = "lsp")]
 use std::sync::Arc;
 
 /// LSP module integration handle.
-#[cfg(feature = "lsp")]
 pub struct LspIntegration {
     /// The translator that bridges MCP and LSP protocols.
     ///
@@ -64,7 +48,6 @@ pub struct LspIntegration {
     config: Config,
 }
 
-#[cfg(feature = "lsp")]
 impl LspIntegration {
     /// Initialize from configuration.
     ///
@@ -111,7 +94,6 @@ impl LspIntegration {
 /// # Errors
 ///
 /// Returns an error if initialization fails.
-#[cfg(feature = "lsp")]
 pub async fn initialize(config: Config) -> Result<LspIntegration> {
     LspIntegration::from_config(&config).await
 }

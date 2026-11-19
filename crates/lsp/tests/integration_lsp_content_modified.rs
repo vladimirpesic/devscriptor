@@ -4,7 +4,6 @@
 //! `ContentModified` instead of computing against a stale tree. The LSP spec
 //! treats it as a "try again" signal: unretried, the *first* request against a
 //! newly opened document would fail, as it does against a real rust-analyzer.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::process::Stdio;

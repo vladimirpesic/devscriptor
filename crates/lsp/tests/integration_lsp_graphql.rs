@@ -5,7 +5,6 @@
 //! seconds returning no symbols. So a GraphQL file with no config above it has
 //! no project root, as a Rust file without `Cargo.toml` has none, and the
 //! request fails at once with a message saying what is missing.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::path::Path;

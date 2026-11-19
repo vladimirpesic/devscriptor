@@ -5,7 +5,6 @@
 //! `textDocument/publishDiagnostics` after a document is opened or changed.
 //! Pulled from those servers, every `get_diagnostics` call would fail with
 //! `-32601 Unhandled method`; it reports what they pushed instead.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 use std::process::Stdio;

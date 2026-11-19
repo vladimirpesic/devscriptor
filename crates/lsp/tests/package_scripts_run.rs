@@ -7,7 +7,7 @@
 //! mirror pins, the archives, and the check it makes against the registry. Run on
 //! Linux only: the Linux packagers use GNU tools (`stat -c`, `sha256sum`),
 //! which macOS does not have.
-#![cfg(all(target_os = "linux", feature = "lsp"))]
+#![cfg(target_os = "linux")]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

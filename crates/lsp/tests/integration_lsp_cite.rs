@@ -3,7 +3,6 @@
 //! LSP positions are 0-based while search results and editors count from 1,
 //! and models converting between them cite lines off by one (line 41 for line
 //! 42), so each result carries the 1-based `path:line:column` to quote.
-#![cfg(feature = "lsp")]
 
 use std::collections::HashMap;
 

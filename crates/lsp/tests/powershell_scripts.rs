@@ -1,6 +1,5 @@
 //! The Windows scripts, read as text: no PowerShell runs these tests, so
 //! what would break them under Windows PowerShell 5.1 is checked here.
-#![cfg(feature = "lsp")]
 
 use std::path::{Path, PathBuf};
 
