@@ -427,8 +427,10 @@ const CACHE_HOME_VAR: &str = "XDG_CACHE_HOME";
 /// folder, cannot be written: `cache` in `temp_dir`, the server's own
 /// temporary directory, which goes when the server stops. A machine can mount
 /// the cache folder read-only (a container that shares one, a sandbox), and
-/// a server such as phpactor does not start without a cache it can create.
-/// `None` when `home` can be written, or there is none.
+/// servers fail without a cache they can write: phpactor cannot create its
+/// index, and gopls's `go list` cannot use Go's build cache (`go-build`
+/// there), so gopls has "no package metadata" for any file. `None` when
+/// `home` can be written, or there is none.
 fn cache_home_in(home: Option<PathBuf>, temp_dir: &Path) -> Option<PathBuf> {
     let home = home?;
     let writable = std::fs::create_dir_all(&home).is_ok() && tempfile::tempfile_in(&home).is_ok();
