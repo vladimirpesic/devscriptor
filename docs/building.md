@@ -121,7 +121,8 @@ also reserves the 8 MiB main-thread stack that Linux and macOS give a program
 (`crates/cli/build.rs`); Windows' own 1 MiB is too little for a debug build. Pushing a tag
 `v<version>` builds the archives and publishes them, with their checksums and
 `latest.json`, as a GitHub release; the tag must match the version in
-`Cargo.toml`, and the release waits for a check that the mirror releases the
+`Cargo.toml`, the release's notes are `.github/release-notes/v<version>.md`, which
+the tag's commit must hold, and the release waits for a check that the mirror releases the
 commit pins are published, whole (`.github/scripts/check-mirrors.py`: every LSP
 archive at its size, every pinned model file at its SHA-256). A manual run, or a push to `main` that changes the workflow, builds
 and checks them without publishing them. The sections below build the same
