@@ -380,7 +380,7 @@ async fn a_change_another_process_indexed_first_is_announced() {
         let _ = tx.send(rescan.result);
     }));
 
-    let app = root.join("src/app.py");
+    let app = root.join("src").join("app.py");
     std::fs::write(&app, "def edited_elsewhere():\n    return 2\n").expect("edit");
     theirs
         .reindex_paths(&root, std::slice::from_ref(&app))

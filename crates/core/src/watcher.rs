@@ -52,11 +52,12 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use notify::{RecursiveMode, Watcher};
 use tokio::sync::{mpsc, watch};
 
+use crate::database::FileChangeKind;
 use crate::database::operations::RACY_WINDOW_MS;
 use crate::error::{Error, Result};
 use crate::parser::language_config::{extension_to_language, filename_to_language};
@@ -271,6 +272,7 @@ impl CodeWatcher {
     /// Returns an error when the root cannot be scanned or watched, by events
     /// or by polling.
     pub fn start(&self) -> Result<WatchSession> {
+        let began = SystemTime::now();
         // Unbounded so the notify callback (a synchronous closure on the notify
         // thread) never blocks; signals are coalesced on the consumer side.
         let (tx, rx) = mpsc::unbounded_channel::<Signal>();
@@ -303,6 +305,7 @@ impl CodeWatcher {
             watched: HashSet::new(),
             state,
             failures: 0,
+            gathering_since: began,
         };
         let directories = session.scanned_directories(&self.root).ok_or_else(|| {
             Error::Watcher(format!(
@@ -334,17 +337,25 @@ impl CodeWatcher {
 #[derive(Debug)]
 enum Signal {
     /// Paths an event touched that may need re-indexing, those of them it
-    /// created, and directories it created (or moved into place).
+    /// created, and directories it created or moved into place.
     Changed {
         paths: Vec<PathBuf>,
         created: Vec<PathBuf>,
-        created_dirs: Vec<PathBuf>,
+        new_dirs: Vec<NewDir>,
     },
     /// Events were lost or the watcher failed: only a full re-scan is safe.
     Rescan(String),
     /// Files a re-index left unsettled, to be re-indexed again now that
     /// [`RACY_WINDOW_MS`] has passed.
     Recheck(Vec<PathBuf>),
+}
+
+/// A directory an event created or moved into place, which needs watches of
+/// its own; the files already in it are created, or moved in with it.
+#[derive(Debug, PartialEq, Eq)]
+struct NewDir {
+    path: PathBuf,
+    moved: bool,
 }
 
 /// The watcher behind a session.
@@ -416,24 +427,27 @@ fn changes(root: &Path, event: &notify::Event) -> Option<Signal> {
         EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_))
     );
     let mut paths = Vec::new();
-    let mut created_dirs = Vec::new();
+    let mut new_dirs = Vec::new();
     for path in &event.paths {
         if has_ignored_component(root, path) {
             continue;
         }
         if path.is_dir() {
             if created || moved_or_gone {
-                created_dirs.push(path.clone());
+                new_dirs.push(NewDir {
+                    path: path.clone(),
+                    moved: !created,
+                });
             }
         } else if path_is_relevant(root, path) || (moved_or_gone && !path.exists()) {
             paths.push(path.clone());
         }
     }
     let created = if created { paths.clone() } else { Vec::new() };
-    (!paths.is_empty() || !created_dirs.is_empty()).then_some(Signal::Changed {
+    (!paths.is_empty() || !new_dirs.is_empty()).then_some(Signal::Changed {
         paths,
         created,
-        created_dirs,
+        new_dirs,
     })
 }
 
@@ -479,9 +493,12 @@ struct Batch {
     /// How many signals it gathered.
     signals: u64,
     paths: HashSet<PathBuf>,
-    /// The paths that were created, as far as the events tell.
+    /// The paths creation events named, and the files in the directories
+    /// they created.
     created: HashSet<PathBuf>,
-    created_dirs: Vec<PathBuf>,
+    /// The files in the directories moved into place.
+    moved_in: HashSet<PathBuf>,
+    new_dirs: Vec<NewDir>,
     rescan: Option<String>,
     /// Files only checked again ([`Signal::Recheck`]), not reported changed.
     rechecks: HashSet<PathBuf>,
@@ -494,11 +511,11 @@ impl Batch {
             Signal::Changed {
                 paths,
                 created,
-                created_dirs,
+                new_dirs,
             } => {
                 self.paths.extend(paths);
                 self.created.extend(created);
-                self.created_dirs.extend(created_dirs);
+                self.new_dirs.extend(new_dirs);
             }
             Signal::Rescan(reason) => {
                 self.rescan.get_or_insert(reason);
@@ -511,6 +528,30 @@ impl Batch {
     /// unchanged is not reported.
     fn only_rechecks(&self) -> bool {
         self.rescan.is_none() && self.paths.is_empty()
+    }
+
+    /// What happened to `path`, one of the batch's paths, as what is on disk
+    /// now tells: deleted when it is gone; created when it came with a
+    /// directory moved into place, or when creation events named it and it
+    /// was not born before `began`, when the batch began gathering; changed
+    /// otherwise. A creation of a file born before is an older one: macOS's
+    /// FSEvents repeat a file's creation in the events of its edits soon
+    /// after. Nothing for a directory, or a path that cannot be read.
+    fn change_at(&self, path: &Path, began: SystemTime) -> Option<FileChangeKind> {
+        match std::fs::metadata(path) {
+            Ok(meta) if meta.is_file() => {
+                let born_before = meta.created().is_ok_and(|born| born < began);
+                let created =
+                    self.moved_in.contains(path) || (self.created.contains(path) && !born_before);
+                Some(if created {
+                    FileChangeKind::Created
+                } else {
+                    FileChangeKind::Changed
+                })
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(FileChangeKind::Deleted),
+            _ => None,
+        }
     }
 }
 
@@ -529,6 +570,9 @@ pub struct WatchSession {
     state: Arc<WatchState>,
     /// Re-indexes that failed in a row, for [`retry_delay`].
     failures: u32,
+    /// When the session began gathering the batch it gathers now: when the
+    /// one before was complete, or when the watch began.
+    gathering_since: SystemTime,
 }
 
 impl WatchSession {
@@ -633,19 +677,25 @@ impl WatchSession {
                     Err(_elapsed) => break,
                 }
             }
+            let began = std::mem::replace(&mut self.gathering_since, SystemTime::now());
 
             // New directories: watch them, and index the files already in
             // them, which may predate their watches.
-            for dir in std::mem::take(&mut batch.created_dirs) {
-                if let Some((dirs, files)) = self.scanned_directories(&dir) {
+            for dir in std::mem::take(&mut batch.new_dirs) {
+                if let Some((dirs, files)) = self.scanned_directories(&dir.path) {
                     if let Err(e) = self.register(&dirs) {
                         batch.rescan.get_or_insert(e.to_string());
                     }
-                    batch.created.extend(files.iter().cloned());
+                    let arrived = if dir.moved {
+                        &mut batch.moved_in
+                    } else {
+                        &mut batch.created
+                    };
+                    arrived.extend(files.iter().cloned());
                     batch.paths.extend(files);
                 }
             }
-            self.announce(&batch);
+            self.announce(&batch, began);
 
             let only_rechecks = batch.only_rechecks();
             let paths: Vec<PathBuf> = batch.paths.union(&batch.rechecks).cloned().collect();
@@ -689,7 +739,7 @@ impl WatchSession {
                         None => Signal::Changed {
                             paths,
                             created: Vec::new(),
-                            created_dirs: Vec::new(),
+                            new_dirs: Vec::new(),
                         },
                     };
                     self.retry_later(again, delay);
@@ -706,33 +756,22 @@ impl WatchSession {
 
     /// Tell those who follow the database's changes on disk
     /// ([`crate::database::Database::on_file_changes`]) of the files `batch`
-    /// saw created, changed or deleted, before they are re-indexed. Another
-    /// process that indexes the same database may re-index them first, and
-    /// this session's re-index then finds nothing changed; a language server
-    /// of this process still has to hear of them. The re-index tells of what
-    /// it finds too, and a listener takes the two together.
-    fn announce(&self, batch: &Batch) {
-        use crate::database::{FileChange, FileChangeKind};
-        let changes: Vec<FileChange> = batch
+    /// saw created, changed or deleted ([`Batch::change_at`]; it began
+    /// gathering at `began`), before they are re-indexed. Another process that
+    /// indexes the same database may re-index them first, and this session's
+    /// re-index then finds nothing changed; a language server of this process
+    /// still has to hear of them. The re-index tells of what it finds too, and
+    /// a listener takes the two together.
+    fn announce(&self, batch: &Batch, began: SystemTime) {
+        let changes: Vec<crate::database::FileChange> = batch
             .paths
             .iter()
             .filter_map(|path| {
-                let kind = match std::fs::metadata(path) {
-                    Ok(meta) if meta.is_file() => {
-                        if batch.created.contains(path) {
-                            FileChangeKind::Created
-                        } else {
-                            FileChangeKind::Changed
-                        }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => FileChangeKind::Deleted,
-                    _ => return None,
-                };
-                Some(FileChange {
+                Some(crate::database::FileChange {
                     path: crate::pipeline::as_stored(path)
                         .to_string_lossy()
                         .into_owned(),
-                    kind,
+                    kind: batch.change_at(path, began)?,
                 })
             })
             .collect();
@@ -893,10 +932,64 @@ mod tests {
         let created = notify::Event::new(notify::EventKind::Create(CreateKind::Folder))
             .add_path(root.join("pkg"));
         match changes(root, &created) {
-            Some(Signal::Changed { created_dirs, .. }) => {
-                assert_eq!(created_dirs, vec![root.join("pkg")]);
+            Some(Signal::Changed { new_dirs, .. }) => {
+                assert_eq!(
+                    new_dirs,
+                    [NewDir {
+                        path: root.join("pkg"),
+                        moved: false
+                    }]
+                );
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// A file creation events named is created, unless it was born before the
+    /// batch began, as a file macOS's FSEvents report created when edited
+    /// soon after its creation; a file moved in with a directory is created
+    /// whenever it was born. Otherwise a file is changed, or deleted when it
+    /// is gone.
+    #[test]
+    fn a_creation_counts_for_a_file_born_since_the_batch_began() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.py");
+        std::fs::write(&file, "x = 1\n").unwrap();
+        let born = std::fs::metadata(&file)
+            .unwrap()
+            .created()
+            .expect("a birth time");
+        let before = born - Duration::from_secs(60);
+        let after = born + Duration::from_secs(60);
+
+        let named = Batch {
+            created: HashSet::from([file.clone()]),
+            ..Batch::default()
+        };
+        assert_eq!(
+            named.change_at(&file, before),
+            Some(FileChangeKind::Created)
+        );
+        assert_eq!(named.change_at(&file, after), Some(FileChangeKind::Changed));
+
+        let moved_in = Batch {
+            moved_in: HashSet::from([file.clone()]),
+            ..Batch::default()
+        };
+        assert_eq!(
+            moved_in.change_at(&file, after),
+            Some(FileChangeKind::Created)
+        );
+
+        let edited = Batch::default();
+        assert_eq!(
+            edited.change_at(&file, before),
+            Some(FileChangeKind::Changed)
+        );
+        assert_eq!(
+            edited.change_at(&dir.path().join("gone.py"), before),
+            Some(FileChangeKind::Deleted)
+        );
+        assert_eq!(edited.change_at(dir.path(), before), None);
     }
 }
