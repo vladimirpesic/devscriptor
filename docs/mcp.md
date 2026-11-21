@@ -730,10 +730,10 @@ on-demand installation system (see [Language servers](lsp.md)).
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
-| `lsp_arch_detect` | `project_path` | Detect languages in a project and resolve/plan the LSP servers it needs, each one to install with the `reason` it does not run; starts the installed ones in the background and lists them in `prewarming` |
-| `lsp_arch_check` | `server_id`\* | Check whether a single server is available and where it resolves, or the `reason` it does not run here and what makes it run; `server_id` is a server id (`dart-ls`) or its language (`dart`), and a name that is neither comes back as `unknown`, with the server ids |
-| `lsp_arch_batch_check` | `server_ids`\* | Check availability of several servers at once, each by its id or its language, and each one that is not available with its `reason`; the names that are neither come back under `unknown`, with the server ids |
-| `lsp_arch_status` | *(none)* | Resolution status for all known servers, grouped by source; one installed here that cannot run is under `cannot_run`, apart from those to install, and each not available has its `reason` |
+| `lsp_arch_detect` | `project_path` | Detect languages in a project and resolve/plan the LSP servers it needs, each one to install with the `reason` it does not run, and each resolved one that lacks the runtime it starts with with `cannot_start`; starts the installed ones in the background and lists them in `prewarming` |
+| `lsp_arch_check` | `server_id`\* | Check whether a single server is available and where it resolves, or the `reason` it does not run here and what makes it run, and for one available, `cannot_start` when the runtime it starts with is missing or too old; `server_id` is a server id (`dart-ls`) or its language (`dart`), and a name that is neither comes back as `unknown`, with the server ids |
+| `lsp_arch_batch_check` | `server_ids`\* | Check availability of several servers at once, each by its id or its language, and each one that is not available with its `reason`, each available one that cannot start with `cannot_start`; the names that are neither come back under `unknown`, with the server ids |
+| `lsp_arch_status` | *(none)* | Resolution status for all known servers, grouped by source; one installed here that cannot run, or cannot start for want of its runtime, is under `cannot_run`, apart from those to install, and each not available has its `reason` |
 | `lsp_arch_setup` | `project_path`, `auto_install`, `servers_to_install` | Detect a project's languages and install the servers it needs (`auto_install`), or install the servers `servers_to_install` names, by id or language, whether the project needs them or not |
 
 `lsp_arch_setup` with `auto_install: true`, or with `servers_to_install`, downloads

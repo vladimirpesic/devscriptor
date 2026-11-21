@@ -157,6 +157,8 @@ impl LspServer {
     /// # Errors
     ///
     /// Returns an error if:
+    /// - A runtime the server needs to start is missing or too old
+    ///   ([`LspServerConfig::prerequisites`])
     /// - The process cannot be spawned
     /// - Stdin/stdout cannot be captured
     /// - The initialization handshake fails
@@ -177,6 +179,19 @@ impl LspServer {
             command: config.command.clone(),
             error: "no workspace folder to run in".into(),
         })?;
+        // A server whose runtime is missing or too old would exit as it
+        // starts, with only its launcher's complaint — jdtls's is a Python
+        // traceback: it is refused first, with what it needs. A check that
+        // cannot finish lets the server try.
+        if !config.prerequisites.is_empty() {
+            let check = config.clone();
+            let unmet = tokio::task::spawn_blocking(move || check.unmet_prerequisites())
+                .await
+                .unwrap_or_default();
+            if let Some(why) = unmet {
+                return Err(LspError::MissingPrerequisites(why));
+            }
+        }
         let temp_dir = tempfile::Builder::new()
             .prefix(&format!(
                 "{TEMP_DIR_PREFIX}{}-{}-",
@@ -1246,6 +1261,7 @@ mod tests {
             initialization_options: Some(serde_json::json!({ "bundles": [] })),
             settings: crate::config::ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         };
         let options = initialization_options(&config, &[root.path().to_path_buf()]).unwrap();
         assert_eq!(options["bundles"], serde_json::json!([]));
@@ -1254,6 +1270,47 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .contains(&serde_json::json!(kotlin))
+        );
+    }
+
+    /// A server whose runtime this machine lacks is refused before it is
+    /// started, with what it needs, as its own environment finds it: no
+    /// process is run, so the command need not exist.
+    #[tokio::test]
+    async fn a_server_without_its_runtime_is_refused_before_it_starts() {
+        let root = tempfile::tempdir().unwrap();
+        let empty = tempfile::tempdir().unwrap();
+        let config = crate::config::LspServerConfig {
+            language_id: "java".into(),
+            command: "devscriptor-no-such-server".into(),
+            args: vec![],
+            env: HashMap::from([(
+                "PATH".to_string(),
+                empty.path().to_string_lossy().into_owned(),
+            )]),
+            working_dir: None,
+            extensions: vec!["java".into()],
+            heuristics: None,
+            initialization_options: None,
+            settings: crate::config::ServerSettings::default(),
+            configuration: None,
+            prerequisites: vec![crate::lsp_architecture::Prerequisite::BuildTool {
+                name: "Runtime",
+                command: "devscriptor-absent-runtime",
+                min_version: None,
+            }],
+        };
+        let Err(error) = LspServer::spawn_in(&config, &[root.path().to_path_buf()]).await else {
+            panic!("a server without its runtime started");
+        };
+        assert!(
+            matches!(error, LspError::MissingPrerequisites(_)),
+            "{error:?}"
+        );
+        assert_eq!(
+            error.to_string(),
+            "it needs Runtime, and there is no `devscriptor-absent-runtime` on its PATH. \
+             Install Runtime: See official documentation"
         );
     }
 

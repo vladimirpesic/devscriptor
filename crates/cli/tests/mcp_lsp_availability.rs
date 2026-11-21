@@ -4,6 +4,10 @@
 //! `lsp_arch_status` sets an install that is there but cannot run apart from
 //! the servers to install. Agents told only `available: false` of a mirror's
 //! `ruby-lsp`, built for another Ruby, reported it as not installed.
+//!
+//! An install that is there but lacks the runtime it starts with — jdtls
+//! with a Java older than 21 — is said to be unable to start, by the checks
+//! and by the tool call that would start it.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -25,7 +29,13 @@ impl Server {
     /// daemon), with `base` for its data, cache and home: the servers it finds
     /// are the installs under `base/cache`, and none of the user's.
     fn start(base: &Path, workspace: &Path) -> Self {
+        Self::start_with(base, workspace, &[])
+    }
+
+    /// [`Self::start`], with the variables `env` set for the server too.
+    fn start_with(base: &Path, workspace: &Path, env: &[(&str, &Path)]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_devscriptor"))
+            .envs(env.iter().copied())
             .arg("--database")
             .arg(base.join("index.db"))
             .args(["mcp", "--no-watch"])
@@ -175,6 +185,124 @@ fn a_server_that_does_not_run_says_why() {
     assert!(
         reasons.iter().any(|reason| **reason == outdated),
         "{detected}"
+    );
+}
+
+/// A jdtls install with Java 17 where it needs Java 21: each check finds it,
+/// and says it cannot start, with the Java it found and how to install one;
+/// the call that would start it is refused with the same, before anything is
+/// run. The CLI's checks say so too.
+#[cfg(unix)]
+#[test]
+fn a_server_without_the_runtime_it_starts_with_says_so() {
+    use std::os::unix::fs::PermissionsExt;
+    let executable = |path: &Path, script: &str| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, script).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    let base = TempDir::new().unwrap();
+    let workspace = base.path().join("workspace");
+    std::fs::create_dir_all(workspace.join("src")).unwrap();
+    std::fs::write(workspace.join("pom.xml"), "<project/>\n").unwrap();
+    std::fs::write(workspace.join("src/App.java"), "class App {}\n").unwrap();
+    let jdtls = base.path().join("cache/devscriptor/lsp-servers/jdtls");
+    executable(&jdtls.join("bin/jdtls"), "#!/bin/sh\nexit 1\n");
+    let java_home = base.path().join("java-17");
+    executable(
+        &java_home.join("bin/java"),
+        "#!/bin/sh\necho 'openjdk version \"17.0.9\" 2023-10-17' >&2\n",
+    );
+    let cannot_start = format!(
+        "it needs Java 21.0.0 or newer, and `{}` is Java 17.0.9. Install Java 21.0.0 or newer: ",
+        java_home.join("bin/java").display()
+    );
+    let env = [("JAVA_HOME", java_home.as_path())];
+    let mut server = Server::start_with(base.path(), &workspace, &env);
+
+    let check = server.call("lsp_arch_check", json!({"server_id": "java"}));
+    assert_eq!(check["available"], true, "{check}");
+    let said = check["cannot_start"].as_str().unwrap_or_default();
+    assert!(said.starts_with(&cannot_start), "{check}");
+
+    let batch = server.call("lsp_arch_batch_check", json!({"server_ids": ["jdtls"]}));
+    let said = batch["results"][0]["cannot_start"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(said.starts_with(&cannot_start), "{batch}");
+
+    let status = server.call("lsp_arch_status", json!({}));
+    let cannot_run = in_group(&status, "cannot_run", "jdtls").unwrap_or_else(|| panic!("{status}"));
+    let reason = cannot_run["reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.starts_with(&format!("cannot start: {cannot_start}")),
+        "{status}"
+    );
+    assert!(
+        in_group(&status, "installed", "jdtls").is_none(),
+        "{status}"
+    );
+
+    let detected = server.call(
+        "lsp_arch_detect",
+        json!({"project_path": workspace.to_string_lossy()}),
+    );
+    let resolved = detected["resolved_servers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|server| server["server_id"] == "jdtls")
+        .unwrap_or_else(|| panic!("{detected}"));
+    let said = resolved["cannot_start"].as_str().unwrap_or_default();
+    assert!(said.starts_with(&cannot_start), "{detected}");
+
+    let refused = server.request(
+        "tools/call",
+        json!({"name": "get_references", "arguments": {
+            "file_path": workspace.join("src/App.java").to_string_lossy(),
+            "line": 0,
+            "character": 6
+        }}),
+    );
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    let message = refused["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        message.contains("the java language server failed to start for")
+            && message.contains(&cannot_start),
+        "{refused}"
+    );
+
+    let lsp = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_devscriptor"))
+            .arg("lsp")
+            .args(args)
+            .current_dir(base.path())
+            .env("HOME", base.path().join("home"))
+            .env("PATH", "/usr/bin:/bin")
+            .env("JAVA_HOME", &java_home)
+            .env("XDG_CACHE_HOME", base.path().join("cache"))
+            .env("XDG_CONFIG_HOME", base.path().join("config"))
+            .env("XDG_DATA_HOME", base.path().join("data"))
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    let check = lsp(&["check", "jdtls"]);
+    assert!(
+        check.contains(&format!("jdtls cannot start here: {cannot_start}")),
+        "{check}"
+    );
+    let batch = lsp(&["batch-check", "jdtls"]);
+    assert!(
+        batch.contains(&format!("cannot start: {cannot_start}")),
+        "{batch}"
+    );
+    let status = lsp(&["status"]);
+    assert!(
+        status.contains(&format!("❌ jdtls cannot start: {cannot_start}")),
+        "{status}"
     );
 }
 

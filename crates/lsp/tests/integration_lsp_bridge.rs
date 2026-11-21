@@ -44,6 +44,7 @@ fn test_translator_new_with_custom_config() {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         }],
         lifecycle: LifecycleConfig::default(),
     };
@@ -112,6 +113,7 @@ async fn test_translator_initialize_with_servers_no_markers() {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         }],
         lifecycle: LifecycleConfig::default(),
     };

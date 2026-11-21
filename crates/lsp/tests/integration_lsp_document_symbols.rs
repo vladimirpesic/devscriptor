@@ -115,6 +115,7 @@ fn translator(dir: &Path, mode: &str) -> Translator {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         }],
         lifecycle: LifecycleConfig::default(),
     })

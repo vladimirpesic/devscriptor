@@ -62,6 +62,7 @@ async fn a_servers_temporary_directory_goes_with_it() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let server = LspServer::spawn(&config, workspace.path()).await.unwrap();
@@ -110,6 +111,7 @@ async fn a_server_that_never_initializes_is_stopped() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
     config.settings.timeout_seconds = 1;
 

@@ -104,6 +104,7 @@ fn server_config(script: &std::path::Path, mode: &str) -> LspServerConfig {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     }
 }
 

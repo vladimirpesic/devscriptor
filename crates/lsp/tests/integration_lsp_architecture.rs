@@ -588,6 +588,7 @@ fn test_server_status_available() {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         },
     };
 
@@ -823,6 +824,7 @@ fn test_resolution_result_fields() {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         },
     };
 

@@ -142,8 +142,7 @@ impl UnifiedMcpServer {
             .to_string();
         let path = std::path::Path::new(&project_path);
 
-        let manager = self.lsp_arch_manager.lock().await;
-        let result = manager.analyze_project(path);
+        let result = self.lsp_arch_manager.lock().await.analyze_project(path);
 
         let languages: Vec<DetectedLanguageInfo> = result
             .languages
@@ -160,14 +159,14 @@ impl UnifiedMcpServer {
             })
             .collect();
 
-        let resolved_servers: Vec<ResolvedServer> = result
-            .resolved_servers
-            .iter()
-            .map(|(server_id, source, _config)| ResolvedServer {
+        let mut resolved_servers: Vec<ResolvedServer> = Vec::new();
+        for (server_id, source, config) in &result.resolved_servers {
+            resolved_servers.push(ResolvedServer {
                 server_id: server_id.clone(),
                 source: LspSourceInfo::from(source),
-            })
-            .collect();
+                cannot_start: cannot_start(config).await,
+            });
+        }
 
         let needs_install: Vec<ServerNeedsInstall> = result
             .needs_install
@@ -257,16 +256,22 @@ impl UnifiedMcpServer {
 
         let check_result = match server_id_for(&name) {
             Some(server_id) => {
-                let source = quick_check(server_id);
+                let resolution = quick_check(server_id);
                 LspArchCheckResult {
                     server_id: server_id.to_string(),
                     requested: (server_id != name).then_some(name),
-                    available: source.is_some(),
-                    reason: source
+                    available: resolution.is_some(),
+                    reason: resolution
                         .is_none()
                         .then(|| reason_unavailable(server_id))
                         .flatten(),
-                    source: source.as_ref().map(LspSourceInfo::from),
+                    cannot_start: match &resolution {
+                        Some(found) => cannot_start(&found.config).await,
+                        None => None,
+                    },
+                    source: resolution
+                        .as_ref()
+                        .map(|found| LspSourceInfo::from(&found.source)),
                     unknown: None,
                 }
             }
@@ -280,6 +285,7 @@ impl UnifiedMcpServer {
                 available: false,
                 source: None,
                 reason: None,
+                cannot_start: None,
             },
         };
 
@@ -334,26 +340,25 @@ impl UnifiedMcpServer {
         let mut available_count = 0;
         let mut missing_count = 0;
 
-        let results: Vec<BatchCheckResultItem> = batch_results
-            .into_iter()
-            .zip(known)
-            .map(|((server_id, source), (name, _))| {
-                let (available, source_info, reason) = if let Some(src) = source {
-                    available_count += 1;
-                    (true, Some(LspSourceInfo::from(&src)), None)
-                } else {
-                    missing_count += 1;
-                    (false, None, reason_unavailable(&server_id))
-                };
-                BatchCheckResultItem {
-                    requested: (server_id != name).then_some(name),
-                    server_id,
-                    available,
-                    source: source_info,
-                    reason,
-                }
-            })
-            .collect();
+        let mut results: Vec<BatchCheckResultItem> = Vec::new();
+        for ((server_id, resolution), (name, _)) in batch_results.into_iter().zip(known) {
+            let (available, source_info, reason, unmet) = if let Some(found) = resolution {
+                available_count += 1;
+                let unmet = cannot_start(&found.config).await;
+                (true, Some(LspSourceInfo::from(&found.source)), None, unmet)
+            } else {
+                missing_count += 1;
+                (false, None, reason_unavailable(&server_id), None)
+            };
+            results.push(BatchCheckResultItem {
+                requested: (server_id != name).then_some(name),
+                server_id,
+                available,
+                source: source_info,
+                reason,
+                cannot_start: unmet,
+            });
+        }
 
         let batch_result = LspArchBatchCheckResult {
             results,
@@ -436,6 +441,16 @@ impl UnifiedMcpServer {
 
             if let Some(result) = &resolution {
                 let info = LspSourceInfo::from(&result.source);
+                if let Some(why) = cannot_start(&result.config).await {
+                    cannot_run.push(ServerStatusInfo {
+                        server_id: server_id.to_string(),
+                        status: LspServerStatus::CannotRun,
+                        source: Some(info),
+                        missing_prerequisites: None,
+                        reason: Some(format!("cannot start: {why}")),
+                    });
+                    continue;
+                }
                 let status = ServerStatusInfo {
                     server_id: server_id.to_string(),
                     status: LspServerStatus::Available,
@@ -560,7 +575,7 @@ impl UnifiedMcpServer {
 
         // Extract all analysis data while holding the lock, then drop it
         // before any async operations to avoid blocking concurrent calls.
-        let (languages, already_available, needs_install, missing_prerequisites) = {
+        let (languages, resolved, needs_install, missing_prerequisites) = {
             let manager = self.lsp_arch_manager.lock().await;
             let analysis_result = manager.analyze_project(path);
 
@@ -579,17 +594,7 @@ impl UnifiedMcpServer {
                 })
                 .collect();
 
-            let already_available: Vec<ResolvedServer> = analysis_result
-                .resolved_servers
-                .iter()
-                .map(|(server_id, source, _config)| {
-                    let source_info = LspSourceInfo::from(source);
-                    ResolvedServer {
-                        server_id: server_id.clone(),
-                        source: source_info,
-                    }
-                })
-                .collect();
+            let resolved = analysis_result.resolved_servers;
 
             let needs_install: Vec<(
                 String,
@@ -613,13 +618,21 @@ impl UnifiedMcpServer {
                 })
                 .collect();
 
-            (
-                languages,
-                already_available,
-                needs_install,
-                missing_prerequisites,
-            )
+            (languages, resolved, needs_install, missing_prerequisites)
         }; // lock dropped here
+
+        let mut already_available: Vec<ResolvedServer> = Vec::new();
+        for (server_id, source, config) in &resolved {
+            already_available.push(ResolvedServer {
+                server_id: server_id.clone(),
+                source: LspSourceInfo::from(source),
+                cannot_start: cannot_start(config).await,
+            });
+        }
+        let cannot_start_count = already_available
+            .iter()
+            .filter(|server| server.cannot_start.is_some())
+            .count();
 
         // The servers named are installed whether the project's languages call
         // for them or not, each by its id or language (`bash`): naming them
@@ -686,7 +699,8 @@ impl UnifiedMcpServer {
             }
         }
 
-        let setup_complete = still_needed.is_empty() && missing_prerequisites.is_empty();
+        let setup_complete =
+            still_needed.is_empty() && missing_prerequisites.is_empty() && cannot_start_count == 0;
 
         let summary = if setup_complete {
             format!(
@@ -697,11 +711,12 @@ impl UnifiedMcpServer {
             )
         } else {
             format!(
-                "Setup partially complete. {} languages detected, {} servers available, {} servers still need installation, {} servers have missing prerequisites.",
+                "Setup partially complete. {} languages detected, {} servers available, {} servers still need installation, {} servers have missing prerequisites, {} available servers cannot start.",
                 languages.len(),
                 already_available.len(),
                 still_needed.len(),
-                missing_prerequisites.len()
+                missing_prerequisites.len(),
+                cannot_start_count
             )
         };
 
@@ -736,6 +751,19 @@ impl UnifiedMcpServer {
             }
         }
     }
+}
+
+/// Why a server the resolver found cannot start here: a runtime it needs is
+/// missing or too old ([`LspServerConfig::unmet_prerequisites`]). The check
+/// runs those runtimes, so off the async threads; one that cannot finish says
+/// nothing.
+///
+/// [`LspServerConfig::unmet_prerequisites`]: devscriptor_lsp::config::LspServerConfig::unmet_prerequisites
+async fn cannot_start(config: &devscriptor_lsp::config::LspServerConfig) -> Option<String> {
+    let config = config.clone();
+    tokio::task::spawn_blocking(move || config.unmet_prerequisites())
+        .await
+        .unwrap_or_default()
 }
 
 /// Why the registry's server `server_id` does not run here, and what makes it

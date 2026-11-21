@@ -92,6 +92,7 @@ fn translator(dir: &Path, languages: &[&str], lifecycle: LifecycleConfig) -> Arc
                 initialization_options: None,
                 settings: ServerSettings::default(),
                 configuration: None,
+                prerequisites: Vec::new(),
             }
         })
         .collect();

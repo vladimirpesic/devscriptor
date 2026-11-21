@@ -322,7 +322,7 @@ impl LspArchitectureManager {
 
     /// Get all available servers
     #[must_use]
-    pub fn get_all_available_servers(&self) -> Vec<(String, LspSource)> {
+    pub fn get_all_available_servers(&self) -> Vec<(String, ResolutionResult)> {
         self.resolver.scan_all_available()
     }
 

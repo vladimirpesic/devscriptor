@@ -608,6 +608,15 @@ impl LspResolver {
             settings.timeout_seconds = secs;
         }
 
+        // What Devscriptor's own install of a server starts with it knows; a
+        // server found elsewhere may bring its runtime (the VS Code Java
+        // extension's jdtls has its own Java), and runs as it was set up.
+        let prerequisites = if managed {
+            super::start_prerequisites(server_id)
+        } else {
+            Vec::new()
+        };
+
         LspServerConfig {
             language_id,
             command,
@@ -619,6 +628,7 @@ impl LspResolver {
             initialization_options,
             settings,
             configuration: info.and_then(|i| i.configuration.clone()),
+            prerequisites,
         }
     }
 
@@ -637,19 +647,17 @@ impl LspResolver {
         (language_id, extensions, heuristics)
     }
 
-    /// Get all available servers from all sources
+    /// Every server available from any source: where it was found, and how
+    /// it is launched.
     #[must_use]
-    pub fn scan_all_available(&self) -> Vec<(String, LspSource)> {
-        let mut results = Vec::new();
-        let server_ids = self.get_all_server_ids();
-
-        for server_id in server_ids {
-            if let Some(result) = self.resolve(&server_id) {
-                results.push((server_id, result.source));
-            }
-        }
-
-        results
+    pub fn scan_all_available(&self) -> Vec<(String, ResolutionResult)> {
+        self.get_all_server_ids()
+            .into_iter()
+            .filter_map(|server_id| {
+                let result = self.resolve(&server_id)?;
+                Some((server_id, result))
+            })
+            .collect()
     }
 
     /// Get list of all supported server IDs (derived from [`generated_registry`]).
@@ -835,6 +843,46 @@ mod tests {
         );
         let options = serde_json::to_string(&ts.initialization_options).unwrap();
         assert!(!options.contains("node_modules/typescript"), "{options}");
+    }
+
+    /// Devscriptor's own jdtls starts only where Java 21 and Python 3 are;
+    /// one found elsewhere, as the VS Code Java extension's with the Java it
+    /// brings, runs as it was set up.
+    #[test]
+    fn devscriptors_own_install_carries_what_it_starts_with() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resolver = LspResolver::with_dirs(tmp.path().to_path_buf(), tmp.path().to_path_buf());
+        let installed = resolver.build_config(
+            "jdtls",
+            &LspSource::Installed(PathBuf::from("/srv/lsp/jdtls/bin/jdtls")),
+        );
+        assert_eq!(
+            installed.prerequisites,
+            crate::lsp_architecture::start_prerequisites("jdtls")
+        );
+        assert!(!installed.prerequisites.is_empty());
+        let bundled = resolver.build_config(
+            "pyright",
+            &LspSource::Bundled(PathBuf::from(
+                "/opt/devscriptor/lsp-servers/pyright/node_modules/.bin/pyright-langserver",
+            )),
+        );
+        assert_eq!(
+            bundled.prerequisites,
+            crate::lsp_architecture::start_prerequisites("pyright")
+        );
+        let extension = resolver.build_config(
+            "jdtls",
+            &LspSource::VsCodeExtension(PathBuf::from(
+                "/home/u/.vscode/extensions/redhat.java/server/bin/jdtls",
+            )),
+        );
+        assert!(extension.prerequisites.is_empty());
+        let system = resolver.build_config(
+            "jdtls",
+            &LspSource::SystemWide(PathBuf::from("/usr/bin/jdtls")),
+        );
+        assert!(system.prerequisites.is_empty());
     }
 
     /// FsAutoComplete installed by Devscriptor finds the Fantomas installed

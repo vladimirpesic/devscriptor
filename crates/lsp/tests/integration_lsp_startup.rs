@@ -82,6 +82,7 @@ fn server(script: &Path, language: &str) -> LspServerConfig {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     }
 }
 

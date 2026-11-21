@@ -146,6 +146,22 @@ place, or, when it does not, why it does not run and the prerequisites it lacks,
 each with how to install it (`• Go: sudo apt install golang-go  # or:
 https://go.dev/dl/`).
 
+A server Devscriptor installed is started only where the runtime it starts with
+is there, at the version it needs: Java 21 and Python 3 for jdtls, Node.js 18
+for the npm servers, PHP 8.2 with its extensions for phpactor, Ruby 3.0 for
+ruby-lsp, .NET for csharp-ls and fsautocomplete, Java for metals
+([Language server prerequisites](lsp-servers.md)). Each is looked for as the
+server's process would find it — jdtls's Java in `JAVA_HOME` first, then on the
+`PATH`. A server that lacks one is refused before it is started, and the call
+that wanted it says what it needs, what this machine has, and how to install
+it: ``the java language server failed to start for /work/app: it needs Java
+21.0.0 or newer, and `/usr/bin/java` is Java 17.0.9. Install Java 21.0.0 or
+newer: …``. `lsp check`, `lsp batch-check` and `lsp status` say the same of
+such a server, and the MCP checks under `cannot_start` (`lsp_arch_status`
+under `cannot_run`). A server found on the system or in an editor's
+extensions runs as its installer set it up: the VS Code Java extension's jdtls
+brings its own Java.
+
 ## Lifecycle
 
 `devscriptor mcp` answers `initialize` without starting a language server. Each
@@ -419,7 +435,7 @@ devscriptor lsp setup [PATH] [--yes]      # detect the languages, install the mi
 devscriptor lsp setup <SERVER>...         # install servers by id or language
 devscriptor lsp detect [PATH]             # the languages and their servers, without installing
 devscriptor lsp status                    # every known server, grouped by where it resolves
-devscriptor lsp check <SERVER_ID>         # one server: where it resolves, or what it lacks
+devscriptor lsp check <SERVER_ID>         # one server: where it resolves and whether it can start, or what it lacks
 devscriptor lsp batch-check <SERVER_ID>...
 devscriptor lsp trust [FILE]              # trust a project's devscriptor-lsp.toml
 devscriptor lsp untrust [FILE]
@@ -438,6 +454,7 @@ language; see [CLI](cli.md#definition).
 | `No LSP server available for file: No LSP server for extension: .ext` | No installed server handles the file type: `devscriptor lsp setup` (MCP: `lsp_arch_setup`) |
 | `No LSP server configured for language: rust: no project root above …` | A language whose server needs a manifest (Rust, C#, F#, Scala), on a file outside any project: use a file inside one |
 | `… needs a GraphQL config at the project root` | Add a GraphQL config beside the schema, such as `.graphqlrc.yml` with `schema: schema.graphql` and `documents: "src/**/*.graphql"` |
+| `… failed to start for …: it needs …` | The server's runtime is missing or too old: install the version named, or point the server at one (`JAVA_HOME` for jdtls) |
 | `No LSP server configured for language: …` (other) | The server failed to start: run with `--verbose`, and `devscriptor lsp check <server>` |
 | `the <language> language server does not support …` | The server does not offer the feature; `get_server_capabilities` shows what it offers |
 | `no indexed symbol named '…'` | A `name` with no matching entity in the index: scan the codebase, or pass `file_path`, `line` and `character` |

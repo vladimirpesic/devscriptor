@@ -4,7 +4,15 @@ What each of the 21 language servers Devscriptor supports needs in order to run.
 The servers are not part of the Devscriptor binary: they are found on your system
 or in editor extensions, or installed on request by `devscriptor lsp setup` (see
 [Language servers](lsp.md#installing-servers)). `devscriptor lsp check <server>`
-reports what a missing server lacks.
+reports what a missing server lacks, and what an installed one lacks to start.
+
+A server Devscriptor installed is checked for the runtime it starts with before it
+is started: Node.js for the npm servers, Java and Python for jdtls, Java for
+metals, .NET for csharp-ls and fsautocomplete, Ruby for ruby-lsp, PHP and its
+extensions for phpactor, each at the version below. One that is missing or too
+old is named with what was found, and the server is not started
+([Language servers](lsp.md#installing-servers)). gopls and rust-analyzer start
+without their toolchains, and say what they cannot load once they run.
 
 - [At a glance](#at-a-glance)
 - [Self-contained servers](#self-contained-servers)
@@ -227,6 +235,7 @@ and skips a copy in the managed directory. Install a toolchain from
 | --- | --- | --- |
 | `cannot execute binary file: Exec format error` | A build for another architecture | Use the download script, or `lsp setup`, of your platform |
 | `shared library not found` | A missing system library or runtime | Install the runtime the server needs (above) |
+| ``… failed to start for …: it needs Java 21.0.0 or newer, and `/usr/bin/java` is Java 17.0.9`` | The runtime the server starts with is older than it needs | Install the version named, or point the server at one: `JAVA_HOME` for jdtls, the `PATH` for the others |
 | An npm server is `not found` or does not start | Node.js missing, or older than 18 | Install Node.js 18 or newer, with `node` and `npm` on the PATH |
 | rust-analyzer starts but finds nothing | No Rust toolchain: it loads a project through `cargo` | Install Rust with rustup |
 | ruby-lsp is skipped with a Ruby warning | Its package was built by another Ruby | `devscriptor lsp setup ruby-lsp` |

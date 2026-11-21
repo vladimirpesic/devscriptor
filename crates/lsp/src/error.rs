@@ -69,6 +69,13 @@ pub enum LspError {
     ServerUnavailable(String),
     /// No server available for file.
     NoServerForFile(String),
+    /// A server this machine cannot run: a runtime it needs to start is
+    /// missing or too old ([`LspServerConfig::prerequisites`]). Found before
+    /// it is started; the message names each, what this machine has, and how
+    /// to install it.
+    ///
+    /// [`LspServerConfig::prerequisites`]: crate::config::LspServerConfig::prerequisites
+    MissingPrerequisites(String),
     /// The running server does not advertise the requested LSP capability, so
     /// the request would fail with an opaque `-32601`. Reported up-front instead.
     Unsupported {
@@ -122,6 +129,7 @@ impl fmt::Display for LspError {
             LspError::NoServerForFile(path) => {
                 write!(f, "No LSP server available for file: {path}")
             }
+            LspError::MissingPrerequisites(why) => write!(f, "{why}"),
             LspError::Unsupported {
                 language_id,
                 feature,

@@ -1222,6 +1222,10 @@ pub struct ResolvedServer {
     pub server_id: String,
     /// LSP source information.
     pub source: LspSourceInfo,
+    /// Why it cannot start here: a runtime it needs to start is missing or
+    /// too old, said with how to install it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cannot_start: Option<String>,
 }
 
 /// Prerequisite information.
@@ -1314,6 +1318,10 @@ pub struct LspArchCheckResult {
     /// Why it is not available, and what makes it run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Why the server found cannot start here: a runtime it needs to start
+    /// is missing or too old, said with how to install it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cannot_start: Option<String>,
     /// Why nothing was checked: the name is no server and no language a
     /// server serves. Names the server ids there are.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1343,6 +1351,10 @@ pub struct BatchCheckResultItem {
     /// Why it is not available, and what makes it run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Why the server found cannot start here: a runtime it needs to start
+    /// is missing or too old, said with how to install it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cannot_start: Option<String>,
 }
 
 /// Result of `lsp_arch_batch_check` tool.
@@ -1403,7 +1415,8 @@ pub struct ServersBySource {
     /// Servers with missing prerequisites.
     pub missing_prerequisites: Vec<ServerStatusInfo>,
     /// Servers installed here whose install cannot run: built for another
-    /// Ruby, another build than the pinned one, or holding no binary.
+    /// Ruby, another build than the pinned one, holding no binary, or
+    /// without a runtime it needs to start.
     #[serde(default)]
     pub cannot_run: Vec<ServerStatusInfo>,
 }

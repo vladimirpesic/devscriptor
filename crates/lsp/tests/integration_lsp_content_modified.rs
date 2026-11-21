@@ -67,6 +67,7 @@ fn config() -> LspServerConfig {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     }
 }
 

@@ -98,6 +98,7 @@ async fn test_lsp_server_spawn_with_rust_analyzer() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let server = LspServer::spawn(&config, temp_dir.path()).await;
@@ -140,6 +141,7 @@ async fn test_lsp_server_spawn_with_pyright() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let server = LspServer::spawn(&config, temp_dir.path()).await;
@@ -171,6 +173,7 @@ async fn test_lsp_server_spawn_failure_nonexistent_command() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let result = LspServer::spawn(&config, temp_dir.path()).await;
@@ -215,6 +218,7 @@ async fn spawn_fails_fast_when_server_exits_during_initialize() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let started = std::time::Instant::now();
@@ -261,6 +265,7 @@ async fn a_server_that_closes_its_output_before_it_exits_says_why() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let message = format!(
@@ -296,6 +301,7 @@ async fn test_lsp_server_spawn_with_custom_env() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let server = LspServer::spawn(&config, temp_dir.path()).await;
@@ -336,6 +342,7 @@ async fn test_spawn_servers_multiple() {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         },
         LspServerConfig {
             language_id: "nonexistent".into(),
@@ -348,6 +355,7 @@ async fn test_spawn_servers_multiple() {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         },
     ];
 
@@ -387,6 +395,7 @@ async fn test_spawn_servers_all_fail() {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         },
         LspServerConfig {
             language_id: "fail2".into(),
@@ -399,6 +408,7 @@ async fn test_spawn_servers_all_fail() {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         },
     ];
 
@@ -475,6 +485,7 @@ async fn test_lsp_server_shutdown_terminates_process() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let server = LspServer::spawn(&config, temp_dir.path()).await.unwrap();
@@ -504,6 +515,7 @@ async fn test_lsp_server_drop_kills_process() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     {
@@ -536,6 +548,7 @@ async fn test_server_state_transitions_with_real_server() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let server = LspServer::spawn(&config, temp_dir.path()).await.unwrap();
@@ -607,6 +620,7 @@ async fn test_lsp_client_request_initialize() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let server = LspServer::spawn(&config, temp_dir.path()).await.unwrap();
@@ -646,6 +660,7 @@ async fn test_lsp_client_notify_did_open() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let server = LspServer::spawn(&config, temp_dir.path()).await.unwrap();
@@ -689,6 +704,7 @@ async fn test_lsp_client_request_after_shutdown_fails() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let server = LspServer::spawn(&config, temp_dir.path()).await.unwrap();
@@ -803,6 +819,7 @@ async fn test_spawn_failure_error_details() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let result = LspServer::spawn(&config, temp_dir.path()).await;
@@ -849,6 +866,7 @@ async fn test_spawn_with_invalid_workspace_path() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     // Use a path that doesn't exist - spawn should still work
@@ -885,6 +903,7 @@ async fn test_client_request_timeout_scenario() {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
 
     let server = LspServer::spawn(&config, temp_dir.path()).await.unwrap();

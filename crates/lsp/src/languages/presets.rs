@@ -33,6 +33,7 @@ macro_rules! preset {
                 initialization_options: $init,
                 settings: ServerSettings::default(),
                 configuration: None,
+                prerequisites: Vec::new(),
             }
         }
     };
@@ -59,6 +60,7 @@ macro_rules! preset {
                 initialization_options: $init,
                 settings: ServerSettings::default(),
                 configuration: None,
+                prerequisites: Vec::new(),
             }
         }
     };

@@ -87,6 +87,7 @@ fn clangd_config(script: &Path, log: &Path) -> LspServerConfig {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     }
 }
 

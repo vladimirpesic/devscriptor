@@ -92,6 +92,7 @@ fn translator_running(dir: &Path, command: &str, args: Vec<String>) -> Translato
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         }],
         lifecycle: LifecycleConfig::default(),
     })

@@ -97,6 +97,7 @@ fn translator(dir: &Path, servers: &[(&str, &str)]) -> Translator {
                 initialization_options: None,
                 settings: ServerSettings::default(),
                 configuration: None,
+                prerequisites: Vec::new(),
             })
             .collect(),
         lifecycle: LifecycleConfig::default(),

@@ -83,9 +83,12 @@ enum Prerequisite {
     BuildTool { name, command, min_version },          // Node.js, Go, rustup, Python
     Sdk { name, command, env_var, min_version },       // Java, .NET SDK, Ruby, PHP
     PackageManager { name, command },                  // npm, gem
+    PhpExtension { name, extension, install_instructions },  // mbstring, posix, tokenizer
     Custom { name, check_command, install_instructions, install_url },  // the Swift toolchain
 }
 ```
+
+`start_prerequisites` is the part of that list a server cannot start without: the runtime its launcher runs on, at the version it accepts. The resolver gives it to the configuration of a server Devscriptor installed (`LspServerConfig::prerequisites`), whose launcher it knows; a server found on the system or in an editor's extensions runs as its installer set it up. `LspServer::spawn_in` checks it before starting the process (`LspServerConfig::unmet_prerequisites`), each runtime looked for as the server's process would find it — its environment over Devscriptor's, an SDK's variable (`JAVA_HOME`) before the `PATH` — and refuses a server that lacks one with `LspError::MissingPrerequisites`: what it needs, what was found, how to install it (`unmet`). A version a runtime does not report counts as met. The checks (`lsp check`, `lsp status`, `lsp_arch_check`, `lsp_arch_status`, …) run the same test on the servers they find.
 
 ## Server Coverage (21 Servers)
 
@@ -93,7 +96,7 @@ enum Prerequisite {
 | --- | --- | --- | --- |
 | rust-analyzer | Rust | rustup | rust-lang.rust-analyzer |
 | clangd | C, C++, CUDA, Objective-C, Objective-C++ | — | llvm-vs-code-extensions.vscode-clangd |
-| gopls | Go | Go | golang.go |
+| gopls | Go | Go ≥ 1.20 | golang.go |
 | typescript-language-server | TypeScript, JavaScript | Node.js ≥ 18, npm | vscode.typescript-language-features |
 | volar | Vue | Node.js ≥ 18, npm | vue.volar |
 | svelte-language-server | Svelte | Node.js ≥ 18, npm | svelte.svelte-vscode |
@@ -102,16 +105,16 @@ enum Prerequisite {
 | sql-language-server | SQL | Node.js ≥ 18, npm | — |
 | bash-language-server | Bash | Node.js ≥ 18, npm | mads-hartmann.bash-ide-vscode |
 | nomicfoundation-solc | Solidity | Node.js ≥ 18, npm | nomicfoundation.hardhat-solidity |
-| pyright | Python | Node.js | — |
-| jdtls | Java | Java 21+, Python 3 | redhat.java |
+| pyright | Python | Node.js ≥ 18, npm | — |
+| jdtls | Java | Java ≥ 21, Python 3 | redhat.java |
 | kotlin-lsp | Kotlin | — (bundles its Java runtime) | jetbrains.kotlin-server |
 | metals | Scala | Java | scala-lang.scala |
 | csharp-ls | C# | .NET SDK | csharp-ls.csharp-ls |
 | fsautocomplete | F# | .NET SDK | ionide.ionide-fsharp |
 | dart-ls | Dart | — (the install is the Dart SDK) | dart-code.dart-code |
 | sourcekit-lsp | Swift | Swift toolchain | — |
-| ruby-lsp | Ruby | Ruby, gem | shopify.ruby-lsp |
-| phpactor | PHP | PHP | phpactor.vscode-phpactor |
+| ruby-lsp | Ruby | Ruby ≥ 3.0, gem | shopify.ruby-lsp |
+| phpactor | PHP | PHP ≥ 8.2 with mbstring, posix, tokenizer | phpactor.vscode-phpactor |
 
 The prerequisites (`prerequisites.rs`) are what `lsp check`, `lsp setup` and the install itself test for: what a server needs on the host to run. dart-ls's install is the Dart SDK itself, and the Kotlin LSP's archive bundles its Java runtime, so neither needs anything. Objective-C++ (`.mm`) files go to clangd, and so do Objective-C `.m` files, told from MATLAB's by their content (`languages::is_objective_c`: `@interface`, `@implementation` or `#import` in the first 4 KiB). VB.NET files have no server: csharp-ls serves C# only.
 

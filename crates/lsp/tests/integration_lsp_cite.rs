@@ -86,6 +86,7 @@ async fn symbol_results_cite_their_position_counted_from_one() {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         }],
         lifecycle: LifecycleConfig::default(),
     });

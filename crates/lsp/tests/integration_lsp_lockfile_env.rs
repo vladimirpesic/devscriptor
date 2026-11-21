@@ -63,6 +63,7 @@ async fn started_as(language_id: &str, project: &Path) -> serde_json::Value {
         initialization_options: None,
         settings: ServerSettings::default(),
         configuration: None,
+        prerequisites: Vec::new(),
     };
     let server = LspServer::spawn(&config, project).await.unwrap();
     server.shutdown().await.unwrap();

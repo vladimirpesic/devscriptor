@@ -255,7 +255,7 @@ describes.
 
 ```bash
 devscriptor lsp status               # where each server resolves, or why not
-devscriptor lsp check <server-id>    # one server, with its missing prerequisites
+devscriptor lsp check <server-id>    # one server, with its missing prerequisites, or what it needs to start
 devscriptor lsp setup                # install what the project needs
 ```
 

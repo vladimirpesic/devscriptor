@@ -85,6 +85,7 @@ fn translator(dir: &Path) -> Translator {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: Some(serde_json::json!({"metals": {"autoImportBuilds": "all"}})),
+            prerequisites: Vec::new(),
         }],
         lifecycle: LifecycleConfig::default(),
     })

@@ -35,7 +35,7 @@ pub mod vscode;
 pub use manager::{DetectedLanguage, LspAction, LspArchitectureManager, LspArchitectureResult};
 pub use prerequisites::{
     Prerequisite, PrerequisiteTiers, PrerequisitesResult, check_prerequisites,
-    check_prerequisites_async, get_prerequisite_tiers,
+    check_prerequisites_async, get_prerequisite_tiers, start_prerequisites, unmet,
 };
 pub use resolver::{LspResolver, LspSource, ResolutionResult, ServerOverride, UserLspConfig};
 pub use system::{SystemLspInfo, detect_system_lsp};
@@ -52,11 +52,10 @@ pub use vscode::{VsCodeExtension, detect_lsp_server};
 ///
 /// # Returns
 ///
-/// `Some(LspSource)` if found, `None` otherwise
+/// Where the server was found and how it is launched, or `None`
 #[must_use]
-pub fn quick_check(server_id: &str) -> Option<LspSource> {
-    let resolver = LspResolver::new().ok()?;
-    resolver.resolve(server_id).map(|r| r.source)
+pub fn quick_check(server_id: &str) -> Option<ResolutionResult> {
+    LspResolver::new().ok()?.resolve(server_id)
 }
 
 /// The registry's server id that `name` stands for: a server id as it is, or
@@ -74,10 +73,10 @@ pub fn server_id_for(name: &str) -> Option<&'static str> {
 
 /// Batch check multiple servers
 ///
-/// Efficiently checks multiple LSP servers at once, returning
-/// a map of server IDs to their resolved sources.
+/// Efficiently checks multiple LSP servers at once, returning each server
+/// ID with where it was found and how it is launched.
 #[must_use]
-pub fn batch_check<S: AsRef<str>>(server_ids: &[S]) -> Vec<(String, Option<LspSource>)> {
+pub fn batch_check<S: AsRef<str>>(server_ids: &[S]) -> Vec<(String, Option<ResolutionResult>)> {
     let resolver = match LspResolver::new() {
         Ok(r) => r,
         Err(_) => {
@@ -92,8 +91,7 @@ pub fn batch_check<S: AsRef<str>>(server_ids: &[S]) -> Vec<(String, Option<LspSo
         .iter()
         .map(|id| {
             let id_ref = id.as_ref();
-            let source = resolver.resolve(id_ref).map(|r| r.source);
-            (id_ref.to_string(), source)
+            (id_ref.to_string(), resolver.resolve(id_ref))
         })
         .collect()
 }

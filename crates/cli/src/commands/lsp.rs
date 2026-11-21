@@ -275,14 +275,14 @@ impl LspCommand {
         ))?;
         self.term.write_line("")?;
 
-        // Group by source
-        let mut by_source: HashMap<&str, Vec<&str>> = HashMap::new();
-        for (server_id, source) in &available {
-            let source_type: &str = source.source_type();
+        // Group by source, each server with whether it can start here.
+        let mut by_source: HashMap<&str, Vec<(&str, Option<String>)>> = HashMap::new();
+        for (server_id, found) in &available {
+            let source_type: &str = found.source.source_type();
             by_source
                 .entry(source_type)
                 .or_default()
-                .push(server_id.as_str());
+                .push((server_id.as_str(), found.config.unmet_prerequisites()));
         }
 
         for (source, servers) in by_source {
@@ -291,8 +291,13 @@ impl LspCommand {
                 style(source).cyan().bold(),
                 servers.len()
             ))?;
-            for server in servers {
-                self.term.write_line(&format!("  ✅ {server}"))?;
+            for (server, unmet) in servers {
+                match unmet {
+                    None => self.term.write_line(&format!("  ✅ {server}"))?,
+                    Some(why) => self
+                        .term
+                        .write_line(&format!("  ❌ {server} cannot start: {why}"))?,
+                }
             }
             self.term.write_line("")?;
         }
@@ -324,9 +329,9 @@ impl LspCommand {
     pub fn check(&self, server_id: &str) -> Result<()> {
         self.print_header(&format!("🔍 Checking: {server_id}"));
 
-        if let Some(ref source) = quick_check(server_id) {
-            let path: &std::path::Path = source.path();
-            let source_type: &str = source.source_type();
+        if let Some(found) = quick_check(server_id) {
+            let path: &std::path::Path = found.source.path();
+            let source_type: &str = found.source.source_type();
             self.term.write_line(&format!(
                 "{} found at: {}",
                 style("✅").green(),
@@ -334,6 +339,13 @@ impl LspCommand {
             ))?;
             self.term
                 .write_line(&format!("Source: {}", style(source_type).yellow()))?;
+            if let Some(why) = found.config.unmet_prerequisites() {
+                self.term.write_line("")?;
+                self.term.write_line(&format!(
+                    "{} {server_id} cannot start here: {why}",
+                    style("❌").red()
+                ))?;
+            }
         } else {
             self.term
                 .write_line(&format!("{} {} not found", style("❌").red(), server_id))?;
@@ -369,17 +381,25 @@ impl LspCommand {
         let results = batch_check(server_ids);
         spinner.finish_and_clear();
 
-        for (server_id, source) in results {
-            match source {
-                Some(ref src) => {
-                    let path: &std::path::Path = src.path();
-                    let source_type: &str = src.source_type();
-                    self.term.write_line(&format!(
-                        "✅ {} - {} ({})",
-                        style(&server_id).green(),
-                        path.display(),
-                        source_type
-                    ))?;
+        for (server_id, resolution) in results {
+            match resolution {
+                Some(found) => {
+                    let path: &std::path::Path = found.source.path();
+                    let source_type: &str = found.source.source_type();
+                    match found.config.unmet_prerequisites() {
+                        None => self.term.write_line(&format!(
+                            "✅ {} - {} ({})",
+                            style(&server_id).green(),
+                            path.display(),
+                            source_type
+                        ))?,
+                        Some(why) => self.term.write_line(&format!(
+                            "❌ {} - {} ({}), cannot start: {why}",
+                            style(&server_id).red(),
+                            path.display(),
+                            source_type
+                        ))?,
+                    }
                 }
                 None => {
                     let why = devscriptor_lsp::manager::why_unavailable(&server_id)

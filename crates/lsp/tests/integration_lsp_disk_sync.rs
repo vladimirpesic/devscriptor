@@ -96,6 +96,7 @@ impl Project {
                 initialization_options: None,
                 settings: ServerSettings::default(),
                 configuration: None,
+                prerequisites: Vec::new(),
             }],
             lifecycle: LifecycleConfig::default(),
         });

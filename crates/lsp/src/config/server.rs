@@ -1,8 +1,10 @@
 //! LSP server configuration types.
 
+use crate::lsp_architecture::Prerequisite;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// Configuration for an LSP server.
@@ -32,6 +34,16 @@ pub struct LspServerConfig {
     pub settings: ServerSettings,
     /// Configuration to send to server.
     pub configuration: Option<Value>,
+    /// What the server cannot start without on this machine: the runtime
+    /// its launcher runs on, at the version it needs
+    /// ([`start_prerequisites`]). It is not started while one is unmet
+    /// ([`Self::unmet_prerequisites`]). Set for a server Devscriptor
+    /// installed, whose launcher it knows; one found elsewhere runs as its
+    /// installer set it up. Not read from a configuration file.
+    ///
+    /// [`start_prerequisites`]: crate::lsp_architecture::start_prerequisites
+    #[serde(skip)]
+    pub prerequisites: Vec<Prerequisite>,
 }
 
 /// Server heuristics for auto-detection.
@@ -96,6 +108,7 @@ impl LspServerConfig {
             initialization_options: Some(serde_json::json!({ "cargo": { "targetDir": true } })),
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         }
     }
 
@@ -122,6 +135,7 @@ impl LspServerConfig {
             })),
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         }
     }
 
@@ -142,6 +156,7 @@ impl LspServerConfig {
             initialization_options: None,
             settings: ServerSettings::default(),
             configuration: None,
+            prerequisites: Vec::new(),
         }
     }
 
@@ -174,6 +189,22 @@ impl LspServerConfig {
 }
 
 impl LspServerConfig {
+    /// What the server cannot start without that this machine lacks
+    /// ([`Self::prerequisites`]), as its process would look for it: its own
+    /// environment over this process's. `None` when nothing is.
+    #[must_use]
+    pub fn unmet_prerequisites(&self) -> Option<String> {
+        if self.prerequisites.is_empty() {
+            return None;
+        }
+        crate::lsp_architecture::unmet(&self.prerequisites, &|var| {
+            self.env
+                .get(var)
+                .map(OsString::from)
+                .or_else(|| std::env::var_os(var))
+        })
+    }
+
     /// Whether a file of this server's language lies at most `max_depth`
     /// levels into `workspace_root` (`workspace_root` itself being the first).
     #[must_use]
