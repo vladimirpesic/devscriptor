@@ -198,13 +198,15 @@ download_go() {
     rm -f "$go_err"
 }
 
-# Ensure a Ruby >= 2.7 is used on macOS. The ancient system Ruby (2.6) cannot
-# install ruby-lsp because the prism dependency requires >= 2.7.
+# Ensure a Ruby >= 3.0 is used on macOS: ruby-lsp requires it, and the system
+# Ruby (2.6) is older.
+RUBY_3_OR_NEWER='exit(Gem::Version.new(RUBY_VERSION) >= Gem::Version.new("3.0") ? 0 : 1)'
+
 ensure_modern_ruby() {
     local ruby_bin=""
 
     # First check PATH.
-    if command_exists ruby && ruby -e 'exit(RUBY_VERSION >= "2.7.0" ? 0 : 1)' 2>/dev/null; then
+    if command_exists ruby && ruby -e "$RUBY_3_OR_NEWER" 2>/dev/null; then
         ruby_bin="$(command -v ruby)"
     fi
 
@@ -219,7 +221,7 @@ ensure_modern_ruby() {
             "$HOME/.asdf/shims/ruby"
         )
         for r in "${candidates[@]}"; do
-            if [ -x "$r" ] && "$r" -e 'exit(RUBY_VERSION >= "2.7.0" ? 0 : 1)' 2>/dev/null; then
+            if [ -x "$r" ] && "$r" -e "$RUBY_3_OR_NEWER" 2>/dev/null; then
                 ruby_bin="$r"
                 break
             fi
@@ -232,7 +234,7 @@ ensure_modern_ruby() {
         return 0
     fi
 
-    echo "  ✗ Ruby >= 2.7 not found. ruby-lsp requires it."
+    echo "  ✗ Ruby >= 3.0 not found. ruby-lsp requires it."
     echo "        Install with: brew install ruby"
     return 1
 }
@@ -691,8 +693,8 @@ RUBY_LSP_VERSION="0.26.11"
 # The Ruby that builds it is found first, so that the bundle is checked
 # against that Ruby rather than macOS's own 2.6.
 if ! ensure_modern_ruby; then
-    FAILED["ruby-lsp"]="Ruby >= 2.7 not available"
-    echo "[ruby-lsp] ✗ Skipped — Ruby >= 2.7 not available"
+    FAILED["ruby-lsp"]="Ruby >= 3.0 not available"
+    echo "[ruby-lsp] ✗ Skipped — Ruby >= 3.0 not available"
 elif [ -e "$LSP_DIR/ruby-lsp/bin/ruby-lsp-launcher" ] && [ "$(cat "$LSP_DIR/ruby-lsp/.version" 2>/dev/null)" = "$RUBY_LSP_VERSION" ] &&
    built_for_this_ruby "$LSP_DIR/ruby-lsp"; then
     already_present "ruby-lsp"

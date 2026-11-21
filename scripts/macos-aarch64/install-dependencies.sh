@@ -24,6 +24,25 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Whether the version $1 is at least $2, both as major[.minor]: a server's
+# runtime is checked for the version it needs, not only for being there.
+version_at_least() {
+    local have_major have_minor want_major want_minor
+    IFS=. read -r have_major have_minor _ <<< "$1"
+    IFS=. read -r want_major want_minor _ <<< "$2"
+    have_major=${have_major//[!0-9]/}; have_minor=${have_minor//[!0-9]/}
+    want_minor=${want_minor:-0}
+    have_major=${have_major:-0}; have_minor=${have_minor:-0}
+    [ "$have_major" -gt "$want_major" ] ||
+        { [ "$have_major" -eq "$want_major" ] && [ "$have_minor" -ge "$want_minor" ]; }
+}
+
+# The major version of the `java` on the PATH (8 for Java 8's "1.8.0"), or
+# nothing: macOS's own /usr/bin/java, without a JDK, reports none.
+java_major() {
+    java -version 2>&1 | sed -n 's/.*version "\(1\.\)\{0,1\}\([0-9][0-9]*\).*/\2/p' | head -n 1
+}
+
 # Install a brew formula only if its primary command is missing.
 brew_install_if_missing() {
     local cmd="$1"; shift
@@ -77,15 +96,19 @@ command_exists unzip && echo "  ✓ unzip already installed" || brew install unz
 
 # Java (for jdtls, which needs 21 or newer, and metals)
 echo "[5/8] Checking Java..."
-if ! command_exists java || ! java -version >/dev/null 2>&1; then
+if command_exists java && version_at_least "$(java_major)" 21; then
+    echo "  ✓ Java already installed ($(java -version 2>&1 | head -1))"
+else
+    [ -n "$(java_major)" ] && echo "  Java $(java_major) is older than the 21 jdtls needs"
     echo "Installing OpenJDK 21..."
     brew install openjdk@21
     # openjdk is keg-only; symlink so the system Java wrappers can find it.
     sudo ln -sfn "${BREW_PREFIX}/opt/openjdk@21/libexec/openjdk.jdk" \
         /Library/Java/JavaVirtualMachines/openjdk-21.jdk 2>/dev/null || \
         echo "  ⚠ Add ${BREW_PREFIX}/opt/openjdk@21/bin to your PATH"
-else
-    echo "  ✓ Java already installed ($(java -version 2>&1 | head -1))"
+    if ! version_at_least "$(java_major)" 21; then
+        echo "  ⚠ java on the PATH is still Java $(java_major): set JAVA_HOME to $(/usr/libexec/java_home -v 21 2>/dev/null || echo "${BREW_PREFIX}/opt/openjdk@21") (jdtls takes JAVA_HOME's Java first)"
+    fi
 fi
 
 # Python (for jdtls launcher)
@@ -99,10 +122,16 @@ fi
 # Language toolchains for the remaining servers
 echo "[7/8] Checking language toolchains (Go, PHP, Ruby, Node, Coursier)..."
 brew_install_if_missing go go
-brew_install_if_missing php php
-# Ruby 2.7 or newer for ruby-lsp, on PATH or Homebrew's, where
+# PHP 8.2 or newer for phpactor, which refuses an older one.
+if command_exists php && version_at_least "$(php -r 'echo PHP_VERSION;' 2>/dev/null)" 8.2; then
+    echo "  ✓ php already installed ($(php -r 'echo PHP_VERSION;'))"
+else
+    echo "Installing php..."
+    brew install php
+fi
+# Ruby 3.0 or newer for ruby-lsp, on PATH or Homebrew's, where
 # download-lsp-servers.sh looks: macOS's own /usr/bin/ruby is older.
-if command_exists ruby && ruby -e 'exit(RUBY_VERSION >= "2.7.0" ? 0 : 1)' 2>/dev/null; then
+if command_exists ruby && version_at_least "$(ruby -e 'print RUBY_VERSION' 2>/dev/null)" 3.0; then
     echo "  ✓ ruby already installed ($(ruby --version))"
 elif [ -x "${BREW_PREFIX}/opt/ruby/bin/ruby" ]; then
     echo "  ✓ Homebrew's ruby already installed"
@@ -110,7 +139,13 @@ else
     echo "Installing ruby..."
     brew install ruby
 fi
-brew_install_if_missing node node
+# Node.js 18 or newer for the npm servers.
+if command_exists node && version_at_least "$(node --version)" 18; then
+    echo "  ✓ node already installed ($(node --version))"
+else
+    echo "Installing node..."
+    brew install node
+fi
 brew_install_if_missing cs coursier
 
 # .NET SDK (for csharp-ls and fsautocomplete) — cask

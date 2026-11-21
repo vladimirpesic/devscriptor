@@ -27,6 +27,16 @@ function Test-Cmd([string]$name) {
     $null -ne (Get-Command $name -ErrorAction SilentlyContinue)
 }
 
+# The major version a command reports, read by $pattern's first group; 0 when
+# it is missing or reports none. A server's runtime is checked for the version
+# it needs, not only for being there.
+function Get-ReportedMajor([string]$cmd, [string[]]$arguments, [string]$pattern) {
+    if (-not (Test-Cmd $cmd)) { return 0 }
+    $text = (& $cmd @arguments 2>&1 | Out-String)
+    if ($text -match $pattern) { return [int]$Matches[1] }
+    return 0
+}
+
 # Install a winget package only if its primary command is missing.
 function Install-WinGet([string]$id, [string]$cmd, [string]$label = $null) {
     if (-not $label) { $label = $id }
@@ -135,7 +145,14 @@ Write-Host "  [OK] winget present"
 
 # 1. Java (jdtls, which needs 21 or newer, and metals)
 Write-Host "[2/9] Checking Java..."
-Install-WinGet "Microsoft.OpenJDK.21" "java" "OpenJDK 21"
+# Java 8 reports "1.8.0", read as 8.
+$javaMajor = Get-ReportedMajor java @('-version') 'version "(?:1\.)?(\d+)'
+if ($javaMajor -ge 21) {
+    Write-Host "  [OK] Java $javaMajor already installed"
+} else {
+    if ($javaMajor -gt 0) { Write-Host "  Java $javaMajor is older than the 21 jdtls needs" }
+    Install-WinGet "Microsoft.OpenJDK.21" "" "OpenJDK 21"
+}
 
 # 2. Python (jdtls launcher)
 Write-Host "[3/9] Checking Python..."
@@ -154,7 +171,13 @@ Install-WinGet "GoLang.Go" "go" "Go"
 
 # 4. Node.js + npm (9 npm-based servers)
 Write-Host "[5/9] Checking Node.js..."
-Install-WinGet "OpenJS.NodeJS.LTS" "node" "Node.js LTS"
+$nodeMajor = Get-ReportedMajor node @('--version') 'v(\d+)\.'
+if ($nodeMajor -ge 18) {
+    Write-Host "  [OK] Node.js $nodeMajor already installed"
+} else {
+    if ($nodeMajor -gt 0) { Write-Host "  Node.js $nodeMajor is older than the 18 the npm servers need" }
+    Install-WinGet "OpenJS.NodeJS.LTS" "" "Node.js LTS"
+}
 
 # 5. .NET SDK (csharp-ls, fsautocomplete)
 Write-Host "[6/9] Checking .NET SDK..."
@@ -165,7 +188,9 @@ Install-WinGet "Microsoft.DotNet.SDK.8" "dotnet" ".NET SDK 8"
 # requires RubyInstaller2 + MSYS2/MINGW (the "DevKit"). If Ruby is already
 # present without DevKit, we install MSYS2 separately and run ridk install.
 Write-Host "[7/9] Checking Ruby..."
-$rubyOk = Test-Cmd ruby
+# ruby-lsp needs Ruby 3.0 or newer.
+$rubyMajor = Get-ReportedMajor ruby @('-e', 'print RUBY_VERSION') '^(\d+)\.'
+$rubyOk = $rubyMajor -ge 3
 $devkitOk = $false
 if ($rubyOk -and (Test-Cmd ridk)) {
     $devkitOk = (& ridk version 2>&1 | Out-String) -match "msys2"
@@ -176,8 +201,9 @@ if ($rubyOk -and $devkitOk) {
     Write-Warning "  Ruby is installed but MSYS2/DevKit was not detected; installing MSYS2 separately..."
     Ensure-Msys2ForRuby
 } else {
-    # No Ruby at all -> install the bundled Ruby+DevKit package.
-    Install-WinGet "RubyInstallerTeam.RubyWithDevKit.3.3" "ruby" "Ruby 3.3 with DevKit"
+    # No Ruby 3 -> install the bundled Ruby+DevKit package.
+    if ($rubyMajor -gt 0) { Write-Host "  Ruby $rubyMajor is older than the 3.0 ruby-lsp needs" }
+    Install-WinGet "RubyInstallerTeam.RubyWithDevKit.3.3" "" "Ruby 3.3 with DevKit"
     Ensure-Msys2ForRuby
 }
 

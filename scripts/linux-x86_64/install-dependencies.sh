@@ -29,6 +29,25 @@ apt_package_installed() {
     dpkg -l "$1" 2>/dev/null | grep -q "^ii"
 }
 
+# Whether the version $1 is at least $2, both as major[.minor]: a server's
+# runtime is checked for the version it needs, not only for being there.
+version_at_least() {
+    local have_major have_minor want_major want_minor
+    IFS=. read -r have_major have_minor _ <<< "$1"
+    IFS=. read -r want_major want_minor _ <<< "$2"
+    have_major=${have_major//[!0-9]/}; have_minor=${have_minor//[!0-9]/}
+    want_minor=${want_minor:-0}
+    have_major=${have_major:-0}; have_minor=${have_minor:-0}
+    [ "$have_major" -gt "$want_major" ] ||
+        { [ "$have_major" -eq "$want_major" ] && [ "$have_minor" -ge "$want_minor" ]; }
+}
+
+# The major version of the `java` on the PATH (8 for Java 8's "1.8.0"), or
+# nothing.
+java_major() {
+    java -version 2>&1 | sed -n 's/.*version "\(1\.\)\{0,1\}\([0-9][0-9]*\).*/\2/p' | head -n 1
+}
+
 echo "[1/7] Updating package lists..."
 apt update || true
 
@@ -50,11 +69,16 @@ fi
 
 # Install Java (for jdtls, which needs 21 or newer, and metals)
 echo "[3/7] Checking Java..."
-if ! command_exists java; then
-    echo "Installing OpenJDK 21..."
-    apt install -y openjdk-21-jdk
-else
+if command_exists java && version_at_least "$(java_major)" 21; then
     echo "  ✓ Java already installed ($(java -version 2>&1 | head -1))"
+else
+    command_exists java && echo "  Java $(java_major) is older than the 21 jdtls needs"
+    echo "Installing OpenJDK 21..."
+    apt install -y openjdk-21-jdk ||
+        echo "  ⚠ openjdk-21-jdk is not in this distribution: install Java 21 or newer from https://adoptium.net/"
+    if command_exists java && ! version_at_least "$(java_major)" 21; then
+        echo "  ⚠ java on the PATH is still Java $(java_major): choose 21 with \`update-alternatives --config java\`, or set JAVA_HOME to it (jdtls takes JAVA_HOME's Java first)"
+    fi
 fi
 
 # Install Python (for jdtls launcher)
@@ -84,8 +108,14 @@ if ! command_exists php; then
 elif ! php -r 'exit(extension_loaded("mbstring") ? 0 : 1);' 2>/dev/null; then
     echo "Installing PHP's mbstring extension..."
     apt install -y php-mbstring
-else
+fi
+PHP_VERSION_HERE=$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)
+if version_at_least "$PHP_VERSION_HERE" 8.2; then
     echo "  ✓ PHP already installed ($(php --version | head -1))"
+elif [ -n "$PHP_VERSION_HERE" ]; then
+    echo "  ⚠ PHP $PHP_VERSION_HERE is older than the 8.2 phpactor needs: install PHP 8.2 or newer (Ubuntu 22.04: the ondrej/php PPA)"
+else
+    echo "  ⚠ PHP was not installed: phpactor needs PHP 8.2 or newer"
 fi
 
 # Install Ruby (for ruby-lsp)
@@ -93,20 +123,27 @@ echo "[7/7] Checking Ruby..."
 if ! command_exists ruby; then
     echo "Installing Ruby..."
     apt install -y ruby ruby-dev
-else
+fi
+RUBY_VERSION_HERE=$(ruby -e 'print RUBY_VERSION' 2>/dev/null || true)
+if version_at_least "$RUBY_VERSION_HERE" 3.0; then
     echo "  ✓ Ruby already installed ($(ruby --version))"
+elif [ -n "$RUBY_VERSION_HERE" ]; then
+    echo "  ⚠ Ruby $RUBY_VERSION_HERE is older than the 3.0 ruby-lsp needs: install Ruby 3.0 or newer"
+else
+    echo "  ⚠ Ruby was not installed: ruby-lsp needs Ruby 3.0 or newer"
 fi
 
 # Install npm/node if not present
 echo ""
 echo "Checking language-specific package managers..."
 
-if ! command_exists npm; then
+if command_exists npm && command_exists node && version_at_least "$(node --version)" 18; then
+    echo "  ✓ Node.js/npm already installed ($(node --version))"
+else
+    command_exists node && echo "  Node.js $(node --version) is older than the 18 the npm servers need"
     echo "Installing Node.js and npm..."
     curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     apt install -y nodejs
-else
-    echo "  ✓ Node.js/npm already installed ($(node --version))"
 fi
 
 # Install .NET SDK (for csharp-ls and fsautocomplete)

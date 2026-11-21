@@ -169,6 +169,11 @@ cd scripts/macos-aarch64 && ./install-dependencies.sh         # or macos-x86_64;
 cd scripts\windows-x86_64; .\install-dependencies.ps1          # in an elevated PowerShell
 ```
 
+Each runtime is checked for the version its servers need — Java 21, Node.js 18,
+PHP 8.2, Ruby 3.0 — not only for being there: an older one gets the version
+needed installed beside it, and where the package manager has none (PHP 8.2 on
+Ubuntu 22.04), the script says so.
+
 [Language servers](lsp.md) explains detection, installation and configuration.
 
 ## Connecting an AI agent
