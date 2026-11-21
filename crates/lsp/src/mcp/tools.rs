@@ -1037,8 +1037,9 @@ pub struct ServerProjectsResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectFilesParams {
     /// The project's directory; a relative path is taken from the workspace
-    /// root.
-    pub project: String,
+    /// root. Without one, the workspace root.
+    #[serde(default)]
+    pub project: Option<String>,
     /// Pagination limit.
     #[serde(default = "default_limit")]
     pub limit: u32,

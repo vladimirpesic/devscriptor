@@ -1479,8 +1479,7 @@ impl UnifiedMcpServer {
             let project = args
                 .get("project")
                 .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+                .map(String::from);
             let limit = args
                 .get("limit")
                 .and_then(serde_json::Value::as_u64)
@@ -1871,12 +1870,11 @@ pub fn tool_list() -> Vec<Tool> {
                 "properties": {
                     "project": {
                         "type": "string",
-                        "description": "The project's directory. Relative paths are taken from the workspace root."
+                        "description": "The project's directory, the workspace root when none is given. Relative paths are taken from the workspace root."
                     },
                     "limit": {"type": "integer", "default": 100},
                     "offset": {"type": "integer", "default": 0}
-                },
-                "required": ["project"]
+                }
             })),
         ),
         Tool::new(
@@ -2677,8 +2675,9 @@ while True:
     }
 
     /// `get_project_files` lists the project its schema's `project` names,
-    /// relative to the workspace root, sorted and at any depth: not `.git`'s
-    /// files, hidden ones, or what `.gitignore` leaves out.
+    /// relative to the workspace root, or the workspace root without one,
+    /// sorted and at any depth: not `.git`'s files, hidden ones, or what
+    /// `.gitignore` leaves out.
     #[tokio::test]
     async fn get_project_files_lists_the_project_it_is_named_by() {
         let scratch = tempfile::tempdir().unwrap();
@@ -2720,6 +2719,8 @@ while True:
                 inside("src/main.rs"),
             ]
         );
+        let unnamed = call(&server, "get_project_files", json!({})).await.unwrap();
+        assert_eq!(listed(&unnamed), listed(&all));
 
         let page = call(
             &server,

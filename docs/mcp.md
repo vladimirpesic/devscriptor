@@ -718,7 +718,7 @@ formatting"*, and nothing is written.
 | `get_server_status` | `language_id` | Language-server status, one server's or every configured one's: `running`, `exited` or `stopped`, with `stop_reason` (`not started`, `idle`, `requested`, `cap`) when stopped |
 | `get_server_capabilities` | `language_id` | A server's capabilities |
 | `get_server_projects` | `language_id` | The folders a running server has open, or the workspace's |
-| `get_project_files` | `project`\*, `limit`, `offset` | A project's files, sorted, without hidden files and what its ignore files leave out |
+| `get_project_files` | `project`, `limit`, `offset` | A project's files (the workspace root's without `project`), sorted, without hidden files and what its ignore files leave out |
 | `start_server` | `language_id`\*, `project` | Start a language server for `project` (a path in it), or for the workspace; a running server is kept, restarted only to take a project it does not cover |
 | `stop_server` | `language_id`\* | Stop a language server |
 | `restart_server` | `language_id`\* | Restart a language server |

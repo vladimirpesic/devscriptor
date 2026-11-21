@@ -3503,7 +3503,7 @@ impl Translator {
         &self,
         params: ProjectFilesParams,
     ) -> Result<ProjectFilesResult> {
-        let project = self.in_workspace(&params.project);
+        let project = self.in_workspace(params.project.as_deref().unwrap_or("."));
         if !project.is_dir() {
             return Err(LspError::InvalidPath(format!(
                 "no project directory {}",
