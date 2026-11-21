@@ -86,6 +86,121 @@ async fn test_add_context_note_missing_required_fields() {
     );
 }
 
+/// A link that misnames a key, is no object, or lacks the key a link needs
+/// is refused, naming the keys a link takes, and no note is stored: left out,
+/// or stored as a link to no entity in particular, it was counted as made. A
+/// link as the schema has it is stored, and finds the note again.
+#[tokio::test]
+async fn a_link_the_schema_does_not_describe_is_refused() {
+    let (module, _temp) = setup();
+    let note = |related: serde_json::Value| {
+        json!({
+            "note_type": "failure",
+            "title": "A throwing cleanup aborts unmount",
+            "content": "Clear hook._cleanup before invoking it.",
+            "related_entities": related
+        })
+    };
+    let refusal = |result: Result<ToolResult, devscriptor_mcp::ToolError>| match result {
+        Err(error) => error.to_string(),
+        Ok(ToolResult::Error(error)) => error,
+        Ok(ToolResult::Success(value)) => panic!("stored: {value}"),
+    };
+
+    let misnamed = module
+        .handle_tool(
+            "add_context_note",
+            Some(note(json!([{
+                "entity_type": "function",
+                "file_path": "hooks/src/index.js",
+                "name": "invokeCleanup"
+            }]))),
+        )
+        .await;
+    let message = refusal(misnamed);
+    assert!(
+        message.contains("related_entities[0] has `name`")
+            && message.contains("entity_type, entity_id, entity_name, file_path, link_type"),
+        "{message}"
+    );
+    let bare = refusal(
+        module
+            .handle_tool("add_context_note", Some(note(json!(["invokeCleanup"]))))
+            .await,
+    );
+    assert!(
+        bare.contains("related_entities[0] is \"invokeCleanup\""),
+        "{bare}"
+    );
+    let untyped = refusal(
+        module
+            .handle_tool(
+                "add_context_note",
+                Some(note(json!([{"entity_name": "invokeCleanup"}]))),
+            )
+            .await,
+    );
+    assert!(
+        untyped.contains("related_entities[0] has no `entity_type`"),
+        "{untyped}"
+    );
+    let concept = refusal(
+        module
+            .handle_tool(
+                "add_context_note",
+                Some(json!({
+                    "note_type": "general",
+                    "title": "t",
+                    "content": "c",
+                    "related_concepts": [{"concept_type": "module", "name": "hooks"}]
+                })),
+            )
+            .await,
+    );
+    assert!(
+        concept.contains("related_concepts[0] has `name`"),
+        "{concept}"
+    );
+
+    let statistics = extract_text(
+        module
+            .handle_tool("get_context_statistics", Some(json!({})))
+            .await
+            .unwrap(),
+    );
+    let statistics: serde_json::Value = serde_json::from_str(&statistics).unwrap();
+    assert_eq!(statistics["total_notes"], 0, "{statistics}");
+
+    let stored = extract_text(
+        module
+            .handle_tool(
+                "add_context_note",
+                Some(note(json!([{
+                    "entity_type": "function",
+                    "entity_name": "invokeCleanup",
+                    "file_path": "hooks/src/index.js"
+                }]))),
+            )
+            .await
+            .unwrap(),
+    );
+    let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(stored["entity_links"], 1, "{stored}");
+    let related = extract_text(
+        module
+            .handle_tool(
+                "get_related_context",
+                Some(json!({"entity_type": "function", "entity_name": "invokeCleanup"})),
+            )
+            .await
+            .unwrap(),
+    );
+    assert!(
+        related.contains("A throwing cleanup aborts unmount"),
+        "{related}"
+    );
+}
+
 // ============================================================================
 // search_context
 // ============================================================================

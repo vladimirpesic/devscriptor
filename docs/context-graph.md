@@ -110,7 +110,10 @@ number of note *types*, not tools.) Parameters marked `*` are required.
 Each `related_entities` item requires `entity_type`; `entity_id`, `entity_name`,
 `file_path`, and `link_type` (default `references`) are optional. Each
 `related_concepts` item requires `concept_type` and `concept_name`; `concept_path`
-and `link_type` (default `references`) are optional.
+and `link_type` (default `references`) are optional. An item with another key
+(`name` for `entity_name`), one that is no object (a bare name), or one without
+its required keys is refused, naming the keys a link takes, and no note is
+stored: kept, it would link the note to no entity in particular.
 
 **`search_context` example (hybrid + filter):**
 

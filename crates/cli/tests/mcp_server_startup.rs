@@ -197,8 +197,14 @@ fn mcp_server_starts_and_serves_all_75_tools_without_any_language_server() {
         }
 
         // Every tool says what it does to its environment, so a client can
-        // run the read-only ones without asking.
+        // run the read-only ones without asking, and takes no argument its
+        // schema does not name.
         for tool in tools {
+            assert_eq!(
+                tool["inputSchema"]["additionalProperties"], false,
+                "{} takes arguments it does not name: {tool}",
+                tool["name"]
+            );
             let annotations = &tool["annotations"];
             assert!(
                 annotations["title"].is_string() && annotations["readOnlyHint"].is_boolean(),
@@ -318,6 +324,16 @@ fn a_failed_call_is_an_error_result_and_an_unknown_tool_a_protocol_error() {
 
     let no_such_tool = server.call_tool("no_such_tool", json!({}));
     assert_eq!(no_such_tool["error"]["code"], -32602, "{no_such_tool}");
+
+    // An argument the tool does not take is refused, naming what it takes:
+    // left out, the call would list the workspace root.
+    let misnamed = server.call_tool("get_project_files", json!({"path": "src"}));
+    assert!(misnamed.get("error").is_none(), "{misnamed}");
+    assert_eq!(misnamed["result"]["isError"], true, "{misnamed}");
+    assert_eq!(
+        text(&misnamed),
+        "get_project_files takes no `path` argument; its arguments are limit, offset, project"
+    );
 
     // Sixty calls at once overrun the tool's limit (a burst of 20, then 10 a
     // second); the calls turned away are failed calls that say when to retry.

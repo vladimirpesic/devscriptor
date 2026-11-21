@@ -645,7 +645,8 @@ pub static ADD_CONTEXT_NOTE_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
                         "file_path": { "type": "string", "description": "Optional file path" },
                         "link_type": { "type": "string", "description": "Link type (default: 'references')" }
                     },
-                    "required": ["entity_type"]
+                    "required": ["entity_type"],
+                    "additionalProperties": false
                 }
             },
             "related_concepts": {
@@ -659,7 +660,8 @@ pub static ADD_CONTEXT_NOTE_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
                         "concept_path": { "type": "string", "description": "Optional concept path" },
                         "link_type": { "type": "string", "description": "Link type (default: 'references')" }
                     },
-                    "required": ["concept_type", "concept_name"]
+                    "required": ["concept_type", "concept_name"],
+                    "additionalProperties": false
                 }
             }
         },

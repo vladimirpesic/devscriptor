@@ -8,6 +8,67 @@ use crate::tools::{
     ContextNoteResult, PruneContextResponse, PruneStatistics, SearchContextResponse,
 };
 
+/// The keys an item of `add_context_note`'s `related_entities` takes.
+const ENTITY_LINK_KEYS: [&str; 5] = [
+    "entity_type",
+    "entity_id",
+    "entity_name",
+    "file_path",
+    "link_type",
+];
+
+/// The keys an item of `add_context_note`'s `related_concepts` takes.
+const CONCEPT_LINK_KEYS: [&str; 4] = ["concept_type", "concept_name", "concept_path", "link_type"];
+
+/// The items of the link list `field` of `args`, `None` when it is not given:
+/// each an object of `keys` only, with a text for each of `required`. An item
+/// that is not, or that misnames a key, is refused, naming the keys: it would
+/// be left out, or stored as a link to no entity in particular — a
+/// `{"name": "invokeCleanup"}` for `entity_name` — while the answer counted
+/// it as made.
+fn link_items<'a>(
+    args: &'a Value,
+    field: &str,
+    keys: &[&str],
+    required: &[&str],
+) -> Result<Option<Vec<&'a serde_json::Map<String, Value>>>, ToolError> {
+    let Some(list) = args.get(field) else {
+        return Ok(None);
+    };
+    let shape = || format!("objects with {}", keys.join(", "));
+    let items = list
+        .as_array()
+        .ok_or_else(|| ToolError::InvalidParams(format!("'{field}' is a list of {}", shape())))?;
+    items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let item = item.as_object().ok_or_else(|| {
+                ToolError::InvalidParams(format!(
+                    "{field}[{i}] is {item}, where the items are {}",
+                    shape()
+                ))
+            })?;
+            if let Some(key) = item.keys().find(|key| !keys.contains(&key.as_str())) {
+                return Err(ToolError::InvalidParams(format!(
+                    "{field}[{i}] has `{key}`, which a link does not take; its keys are {}",
+                    keys.join(", ")
+                )));
+            }
+            if let Some(key) = required
+                .iter()
+                .find(|key| item.get(**key).and_then(Value::as_str).is_none())
+            {
+                return Err(ToolError::InvalidParams(format!(
+                    "{field}[{i}] has no `{key}`, which a link needs"
+                )));
+            }
+            Ok(item)
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
 impl CoreModule {
     pub(super) async fn add_context_note(
         &self,
@@ -60,65 +121,49 @@ impl CoreModule {
             ConceptLinkSpec, ContextNote, EntityLinkSpec, NoteStatus, NoteType,
         };
 
-        // Parse optional entity links: notes can be attached to concrete code
+        // Optional entity links: notes can be attached to concrete code
         // entities so `get_related_context` can later retrieve them.
-        let related_entities: Option<Vec<EntityLinkSpec>> = args
-            .get("related_entities")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|item| {
-                        let entity_type = item.get("entity_type").and_then(|v| v.as_str())?;
-                        Some(EntityLinkSpec {
-                            entity_type: entity_type.to_string(),
-                            entity_id: item
-                                .get("entity_id")
-                                .and_then(|v| v.as_str())
-                                .map(String::from),
-                            entity_name: item
-                                .get("entity_name")
-                                .and_then(|v| v.as_str())
-                                .map(String::from),
-                            file_path: item
-                                .get("file_path")
-                                .and_then(|v| v.as_str())
-                                .map(String::from),
-                            link_type: item
-                                .get("link_type")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("references")
-                                .to_string(),
-                        })
-                    })
-                    .collect()
-            });
+        let text = |item: &serde_json::Map<String, Value>, key: &str| {
+            item.get(key).and_then(Value::as_str).map(String::from)
+        };
+        let related_entities: Option<Vec<EntityLinkSpec>> = link_items(
+            &args,
+            "related_entities",
+            &ENTITY_LINK_KEYS,
+            &["entity_type"],
+        )?
+        .map(|items| {
+            items
+                .into_iter()
+                .map(|item| EntityLinkSpec {
+                    entity_type: text(item, "entity_type").unwrap_or_default(),
+                    entity_id: text(item, "entity_id"),
+                    entity_name: text(item, "entity_name"),
+                    file_path: text(item, "file_path"),
+                    link_type: text(item, "link_type").unwrap_or_else(|| "references".into()),
+                })
+                .collect()
+        });
 
-        // Parse optional concept links: notes can be attached to abstract
+        // Optional concept links: notes can be attached to abstract
         // concepts/modules/patterns.
-        let related_concepts: Option<Vec<ConceptLinkSpec>> = args
-            .get("related_concepts")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|item| {
-                        let concept_type = item.get("concept_type").and_then(|v| v.as_str())?;
-                        let concept_name = item.get("concept_name").and_then(|v| v.as_str())?;
-                        Some(ConceptLinkSpec {
-                            concept_type: concept_type.to_string(),
-                            concept_name: concept_name.to_string(),
-                            concept_path: item
-                                .get("concept_path")
-                                .and_then(|v| v.as_str())
-                                .map(String::from),
-                            link_type: item
-                                .get("link_type")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("references")
-                                .to_string(),
-                        })
-                    })
-                    .collect()
-            });
+        let related_concepts: Option<Vec<ConceptLinkSpec>> = link_items(
+            &args,
+            "related_concepts",
+            &CONCEPT_LINK_KEYS,
+            &["concept_type", "concept_name"],
+        )?
+        .map(|items| {
+            items
+                .into_iter()
+                .map(|item| ConceptLinkSpec {
+                    concept_type: text(item, "concept_type").unwrap_or_default(),
+                    concept_name: text(item, "concept_name").unwrap_or_default(),
+                    concept_path: text(item, "concept_path"),
+                    link_type: text(item, "link_type").unwrap_or_else(|| "references".into()),
+                })
+                .collect()
+        });
 
         let note_type_enum = match note_type {
             "adr" => NoteType::Adr,

@@ -4,7 +4,7 @@
 //! for a total of 75 MCP tools, served with the rmcp SDK.
 
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::core_module::{CoreModule, ToolResult};
@@ -454,7 +454,8 @@ fn answered(outcome: Result<CallToolResult, McpError>) -> CallToolResult {
 }
 
 /// Every tool this build serves, in `tools/list` order, each annotated with
-/// what it does to its environment ([`crate::tool_annotations`]).
+/// what it does to its environment ([`crate::tool_annotations`]), and taking
+/// no argument its schema does not name ([`closed`]).
 fn all_tools() -> Vec<Tool> {
     #[allow(unused_mut)]
     let mut tools = crate::tool_schemas::CORE_TOOLS.clone();
@@ -471,7 +472,75 @@ fn all_tools() -> Vec<Tool> {
                 None => tool,
             },
         )
+        .map(closed)
         .collect()
+}
+
+/// `tool`, its schema taking no argument it does not name
+/// (`additionalProperties: false`): a client that checks a call against the
+/// schema refuses such an argument before sending it, as the server does
+/// ([`unknown_arguments`]).
+fn closed(mut tool: Tool) -> Tool {
+    let mut schema = (*tool.input_schema).clone();
+    schema
+        .entry("additionalProperties")
+        .or_insert(serde_json::Value::Bool(false));
+    tool.input_schema = Arc::new(schema);
+    tool
+}
+
+/// Each tool's arguments, as its schema names them, sorted.
+static ARGUMENTS: std::sync::LazyLock<HashMap<String, Vec<String>>> =
+    std::sync::LazyLock::new(|| {
+        all_tools()
+            .into_iter()
+            .map(|tool| {
+                let mut arguments: Vec<String> = tool
+                    .input_schema
+                    .get("properties")
+                    .and_then(serde_json::Value::as_object)
+                    .map(|properties| properties.keys().cloned().collect())
+                    .unwrap_or_default();
+                arguments.sort();
+                (tool.name.to_string(), arguments)
+            })
+            .collect()
+    });
+
+/// Why a call of the tool `name` is refused: it gives an argument the tool
+/// does not take. A handler reads the arguments it knows, so one misnamed
+/// would be left out without a word, and the call answered as though it had
+/// not been given — `get_project_files` given a `path` lists the workspace
+/// root. `None` when the tool takes every argument given, and for a tool this
+/// server does not have.
+fn unknown_arguments(
+    name: &str,
+    args: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Option<String> {
+    let takes = ARGUMENTS.get(name)?;
+    let unknown: Vec<String> = args?
+        .keys()
+        .filter(|key| !takes.contains(key))
+        .map(|key| format!("`{key}`"))
+        .collect();
+    if unknown.is_empty() {
+        return None;
+    }
+    let listed = |conjunction: &str| match unknown.as_slice() {
+        [rest @ .., last] if !rest.is_empty() => {
+            format!("{} {conjunction} {last}", rest.join(", "))
+        }
+        _ => unknown.concat(),
+    };
+    Some(if takes.is_empty() {
+        format!("{name} takes no arguments, and was given {}", listed("and"))
+    } else {
+        format!(
+            "{name} takes no {} argument; its arguments are {}",
+            listed("or"),
+            takes.join(", ")
+        )
+    })
 }
 
 /// The `instructions` sent at initialization: what the server serves, counted
@@ -580,6 +649,9 @@ impl ServerHandler for UnifiedMcpServer {
     ) -> Result<CallToolResponse, McpError> {
         let name = request.name.as_ref();
         let args = request.arguments;
+        if let Some(why) = unknown_arguments(name, args.as_ref()) {
+            return Ok(failed(why).into());
+        }
         // A workspace indexed since by a scan made elsewhere is watched now,
         // and a change of the project's configuration file is taken.
         self.core.state().check_workspace_watch();
@@ -674,6 +746,56 @@ pub async fn run_core_only_server() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    /// Every tool's schema takes no argument it does not name, and the
+    /// server refuses one, naming it and what the tool takes; a call giving
+    /// only the tool's arguments, or none, or naming no tool of the server's,
+    /// passes on.
+    #[test]
+    fn an_argument_the_tool_does_not_take_is_refused() {
+        for tool in all_tools() {
+            assert_eq!(
+                tool.input_schema.get("additionalProperties"),
+                Some(&serde_json::Value::Bool(false)),
+                "{}",
+                tool.name
+            );
+        }
+        let args = |value: serde_json::Value| value.as_object().unwrap().clone();
+        assert_eq!(
+            unknown_arguments(
+                "semantic_search",
+                Some(&args(json!({"query": "x", "path": "y"})))
+            ),
+            Some(format!(
+                "semantic_search takes no `path` argument; its arguments are {}",
+                ARGUMENTS["semantic_search"].join(", ")
+            ))
+        );
+        let several = unknown_arguments(
+            "add_context_note",
+            Some(&args(json!({"note": "n", "kind": "k", "body": "b"}))),
+        )
+        .unwrap();
+        assert!(
+            several.starts_with("add_context_note takes no `body`, `kind` or `note` argument;"),
+            "{several}"
+        );
+        assert_eq!(
+            unknown_arguments("get_watch_status", Some(&args(json!({"verbose": true})))),
+            Some("get_watch_status takes no arguments, and was given `verbose`".to_string())
+        );
+        assert_eq!(
+            unknown_arguments("semantic_search", Some(&args(json!({"query": "x"})))),
+            None
+        );
+        assert_eq!(unknown_arguments("semantic_search", None), None);
+        assert_eq!(
+            unknown_arguments("no_such_tool", Some(&args(json!({"x": 1})))),
+            None
+        );
+    }
 
     /// The instructions open with the tool count a client can check a build
     /// against, the same number `tools/list` serves.

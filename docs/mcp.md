@@ -245,6 +245,13 @@ shows it to the model, which can correct its call. A JSON-RPC error answers
 only a call to a tool the server does not have (`-32602`) or a malformed
 request.
 
+A tool takes only the arguments its schema names: every schema says
+`additionalProperties: false`, and a call that gives another is refused,
+naming it and the tool's arguments (``get_project_files takes no `path`
+argument; its arguments are limit, offset, project``). Left out, a misnamed
+argument would change the answer without a word: `get_project_files` would
+list the workspace root.
+
 ## Parameter conventions
 
 Take parameters from the live `tools/list` schema; the tables below mirror it.
