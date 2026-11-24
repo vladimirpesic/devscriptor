@@ -124,8 +124,8 @@ crates/core/src/
 │   ├── constants.rs
 │   ├── language_config.rs      # 27 language extension maps
 │   ├── language_loader.rs      # tree-sitter language FFI loading
-│   ├── entity_extraction.rs    # AST → Entity structs
-│   ├── relationship_extraction.rs
+│   ├── entity_extraction/      # AST → Entity structs: names, functions, types, constants, …
+│   ├── relationship_extraction/ # Calls, value uses, the type hierarchy, imports, nesting
 │   ├── import_extraction.rs    # Import/dependency graph
 │   ├── cross_file.rs           # CrossFileMode, SymbolResolution, built-in names
 │   ├── symbol_table.rs         # Lightweight symbol index (SymbolTable): name resolution
@@ -711,7 +711,7 @@ missing one is installed on request. See
 
 ## LSP Bridge Lifecycle
 
-The `Translator` (`crates/lsp/src/bridge/translator.rs`) holds one client per language
+The `Translator` (`crates/lsp/src/bridge/translator/`) holds one client per language
 and starts, restarts and stops servers. Its settings are `LifecycleConfig`, the
 `[lifecycle]` table of `devscriptor-lsp.toml`, overridden by `DEVSCRIPTOR_LSP_*` variables
 and then by `devscriptor mcp --lsp-startup` (`LifecycleConfig::resolve`).
