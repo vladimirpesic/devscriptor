@@ -580,7 +580,7 @@ entities. See [Context Graph](context-graph.md) for the full reference.
 | --- | --- | --- |
 | `describe_file` | `file_path`\*, `include_content` | Describe a file's contents |
 | `describe_modification` | `file_path`\*, `original_content`\*, `modified_content`\* | Describe what a modification would do |
-| `get_file_context` | `file_path`\*, `context_lines` | Entities in a file plus a source excerpt around each |
+| `get_file_context` | `file_path`\*, `context_lines` | A file's entities with a source excerpt around each, its imports, and the files the graph connects it to |
 | `validate_file_edit` | `file_path`\*, `original_content` | Validate a file edit with context |
 | `query_with_context` | `query`\*, `entity_type`, `file_path`, `force_broad_search` | Query with context awareness |
 
