@@ -614,7 +614,7 @@ dependencies = [
 
 [[package]]
 name = "devscriptor-cli"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "anyhow",
  "clap",
@@ -643,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "devscriptor-core"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "anyhow",
  "clap",
@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "devscriptor-lsp"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -753,7 +753,7 @@ dependencies = [
 
 [[package]]
 name = "devscriptor-mcp"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "anyhow",
  "devscriptor-core",
