@@ -32,7 +32,9 @@ fn strings(value: &Value) -> Vec<String> {
 async fn file_context_and_modifications_say_what_is_there() {
     let db_dir = tempfile::tempdir().expect("db dir");
     let project = tempfile::tempdir().expect("project dir");
-    let root = project.path().canonicalize().unwrap();
+    // The spelling Devscriptor stores paths in: canonical, without the `\\?\`
+    // prefix `std` gives a canonical path on Windows.
+    let root = dunce::canonicalize(project.path()).unwrap();
     let src = root.join("src");
     std::fs::create_dir_all(&src).unwrap();
     std::fs::write(

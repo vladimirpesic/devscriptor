@@ -214,16 +214,23 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("sub")).unwrap();
         let database = dir.path().join("shared.db");
-        let mut spellings = vec![
+        // Through a symlink to the directory too, where one can be made
+        // without privileges.
+        #[cfg(unix)]
+        let linked = {
+            std::os::unix::fs::symlink(dir.path(), dir.path().join("link")).unwrap();
+            Some(dir.path().join("link").join("shared.db"))
+        };
+        #[cfg(not(unix))]
+        let linked: Option<PathBuf> = None;
+        let spellings: Vec<PathBuf> = [
             database.clone(),
             dir.path().join(".").join("shared.db"),
             dir.path().join("sub").join("..").join("shared.db"),
-        ];
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(dir.path(), dir.path().join("link")).unwrap();
-            spellings.push(dir.path().join("link").join("shared.db"));
-        }
+        ]
+        .into_iter()
+        .chain(linked)
+        .collect();
         let barrier = std::sync::Barrier::new(spellings.len());
         let pools: Vec<ConnectionPool> = std::thread::scope(|scope| {
             let handles: Vec<_> = spellings
