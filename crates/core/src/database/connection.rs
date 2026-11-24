@@ -6,12 +6,17 @@ use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use sqlite_vec::sqlite3_vec_init;
 use std::collections::HashMap;
-use std::sync::{LazyLock, Once};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Once};
 
-/// Global cache mapping database paths to their connection pools.
-/// Prevents multiple `Database::new()` calls for the same file from
-/// creating competing r2d2 pools.
-static POOL_CACHE: LazyLock<Mutex<HashMap<String, ConnectionPool>>> =
+/// The pool of each database file, by its canonical path
+/// ([`crate::utils::canonical`]): `Database::new()` calls for one file, under
+/// any spelling, share one r2d2 pool instead of making several that compete
+/// for it. Each path has a slot of its own, locked while its pool is made, so
+/// callers opening one file at once wait for one pool, and callers opening
+/// others do not wait for it.
+type PoolSlot = Arc<Mutex<Option<ConnectionPool>>>;
+static POOL_CACHE: LazyLock<Mutex<HashMap<PathBuf, PoolSlot>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 static SQLITE_VEC_INIT: Once = Once::new();
@@ -40,35 +45,30 @@ pub struct ConnectionPool {
 }
 
 impl ConnectionPool {
-    /// Create a new connection pool
-    ///
-    /// # Arguments
-    ///
-    /// * `database_path` - Path to the SQLite database file
-    /// * `max_size` - Maximum number of connections in the pool
-    ///
-    /// # Returns
-    ///
-    /// A new `ConnectionPool` instance
+    /// The connection pool of the SQLite database at `database_path`: the one
+    /// made for that file before, under any spelling of its path, else a new
+    /// one of at most `max_size` connections ([`POOL_CACHE`]).
     ///
     /// # Errors
     ///
     /// Returns an error if the pool cannot be created
     pub fn new(database_path: &str, max_size: u32) -> Result<Self> {
-        // A cached pool per path, so concurrent or repeated `Database::new()`
-        // calls share one r2d2 pool instead of making several that compete for the
-        // same SQLite file. The key is the canonical path, so "devscriptor.db" and
-        // "./devscriptor.db" share one.
-        let canonical_key = dunce::canonicalize(database_path)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| database_path.to_string());
-        {
-            let cache = POOL_CACHE.lock();
-            if let Some(pool) = cache.get(&canonical_key) {
-                return Ok(pool.clone());
-            }
+        let slot = POOL_CACHE
+            .lock()
+            .entry(crate::utils::canonical(Path::new(database_path)))
+            .or_default()
+            .clone();
+        let mut slot = slot.lock();
+        if let Some(pool) = slot.as_ref() {
+            return Ok(pool.clone());
         }
+        let pool = Self::open(database_path, max_size)?;
+        *slot = Some(pool.clone());
+        Ok(pool)
+    }
 
+    /// A new pool for the database at `database_path`.
+    fn open(database_path: &str, max_size: u32) -> Result<Self> {
         // Register sqlite-vec extension BEFORE opening any connections.
         // Uses a proper C-ABI wrapper to avoid unsafe transmute between
         // incompatible function-pointer types.
@@ -154,15 +154,7 @@ impl ConnectionPool {
             ));
         }
 
-        let pool = Self { pool };
-
-        // Cache the pool so later `Database::new()` calls for the same path reuse
-        // it, under the canonical key.
-        POOL_CACHE
-            .lock()
-            .insert(canonical_key.clone(), pool.clone());
-
-        Ok(pool)
+        Ok(Self { pool })
     }
 
     /// Get a connection from the pool
@@ -196,13 +188,9 @@ impl ConnectionPool {
     /// `clean` command removes it so that no new connection is opened from the
     /// cache while the database file is being removed.
     pub fn remove_from_cache(database_path: &str) {
-        let canonical_key = dunce::canonicalize(database_path)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| database_path.to_string());
-        let mut cache = POOL_CACHE.lock();
-        cache.remove(&canonical_key);
-        // Also try raw key for DBs that weren't yet created on disk when cached.
-        cache.remove(database_path);
+        POOL_CACHE
+            .lock()
+            .remove(&crate::utils::canonical(Path::new(database_path)));
     }
 }
 
@@ -211,5 +199,56 @@ impl Clone for ConnectionPool {
         Self {
             pool: self.pool.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Opened at once from several threads under several spellings, before
+    /// the file exists, one database gets one pool: every connection taken
+    /// from one spelling's pool is gone from the others'.
+    #[test]
+    fn every_spelling_of_a_new_database_shares_one_pool() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let database = dir.path().join("shared.db");
+        let mut spellings = vec![
+            database.clone(),
+            dir.path().join(".").join("shared.db"),
+            dir.path().join("sub").join("..").join("shared.db"),
+        ];
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.path(), dir.path().join("link")).unwrap();
+            spellings.push(dir.path().join("link").join("shared.db"));
+        }
+        let barrier = std::sync::Barrier::new(spellings.len());
+        let pools: Vec<ConnectionPool> = std::thread::scope(|scope| {
+            let handles: Vec<_> = spellings
+                .iter()
+                .map(|path| {
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        ConnectionPool::new(path.to_str().unwrap(), 2).unwrap()
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        let held: Vec<_> = (0..2).map(|_| pools[0].get().unwrap()).collect();
+        for pool in &pools {
+            assert_eq!(pool.pool.state().idle_connections, 0);
+            assert_eq!(pool.pool.state().connections, 2);
+        }
+        drop(held);
+        ConnectionPool::remove_from_cache(dir.path().join("sub/../shared.db").to_str().unwrap());
+        assert!(
+            !POOL_CACHE
+                .lock()
+                .contains_key(&crate::utils::canonical(&database))
+        );
     }
 }

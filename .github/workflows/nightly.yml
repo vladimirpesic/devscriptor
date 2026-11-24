@@ -21,14 +21,14 @@ jobs:
     env:
       CARGO_BUILD_JOBS: 4
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # Where Devscriptor loads the model from on Linux, so the tests find the
       # cached copy instead of downloading it.
       - name: Cache the embedding model
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/devscriptor/models/jina-embeddings-v2-base-code
           # The revision and the file list are pinned in model_fetch.rs.
@@ -57,7 +57,7 @@ jobs:
           cp target/release/devscriptor ~/.local/bin/devscriptor
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm

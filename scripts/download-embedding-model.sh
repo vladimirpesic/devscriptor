@@ -27,7 +27,7 @@ set -euo pipefail
 MODEL_NAME="jinaai/jina-embeddings-v2-base-code"
 # The commit and the checksums Devscriptor pins for these files
 # (crates/core/src/embeddings/model_fetch.rs: PINNED_HF_REVISION and
-# REQUIRED_FILE_SHA256), which it checks every download against, from Hugging
+# MODEL_FILE_SHA256), which it checks every download against, from Hugging
 # Face or the mirror: staged from `main`, a later push would make the mirror's
 # copy one Devscriptor refuses.
 MODEL_REVISION="516f4baf13dec4ddddda8631e019b5737c8bc250"
@@ -103,8 +103,9 @@ download_file "$BASE_URL/config.json"              "$TARGET_DIR/config.json"    
     e426aa684c7f9a95c5f020aa855faf93a24f065f5fad0c9e17b124670cabdea6
 download_file "$BASE_URL/tokenizer_config.json"    "$TARGET_DIR/tokenizer_config.json"    "tokenizer_config.json" \
     f477aeb15ff9f78d3c1ddf2361d2b0b8b20cf55220f839f29a37f3a18efddd89
-# Optional, and pinned by no checksum (see OPTIONAL_FILES in model_fetch.rs).
-download_file "$BASE_URL/special_tokens_map.json"  "$TARGET_DIR/special_tokens_map.json"  "special_tokens_map.json"
+# Not required, and verified all the same (OPTIONAL_FILES in model_fetch.rs).
+download_file "$BASE_URL/special_tokens_map.json"  "$TARGET_DIR/special_tokens_map.json"  "special_tokens_map.json" \
+    06e405a36dfe4b9604f484f6a1e619af1a7f7d09e34a8555eb0b77b66318067f
 
 echo ""
 echo "==============================================="

@@ -46,43 +46,78 @@ pub fn extract_entities(
 /// C++ `int Cart::total()` — and, for an extension, inside it, not among the
 /// type node's own children, where no grammar puts them.
 fn attach_methods(entities: &mut [Entity]) {
-    let members: Vec<(String, (u32, u32), String)> = entities
-        .iter()
-        .filter_map(|entity| match entity {
-            Entity::Function(f) => Some((
-                f.parent_class.clone()?,
+    /// A member function: its first and last lines, and its name.
+    type Member<'e> = ((u32, u32), &'e str);
+    // The functions that are members, by their type's name, in the order they
+    // start.
+    let mut members: std::collections::HashMap<&str, Vec<Member>> =
+        std::collections::HashMap::new();
+    for entity in entities.iter() {
+        if let Entity::Function(f) = entity
+            && let Some(owner) = f.parent_class.as_deref()
+        {
+            members.entry(owner).or_default().push((
                 (f.location.start_line, f.location.end_line),
-                f.name.clone(),
-            )),
-            _ => None,
-        })
-        .collect();
-    for entity in entities.iter_mut() {
+                f.name.as_str(),
+            ));
+        }
+    }
+    for list in members.values_mut() {
+        list.sort_by_key(|((start, _), _)| *start);
+    }
+    let mut attached = Vec::new();
+    for (at, entity) in entities.iter().enumerate() {
         let location = entity.location();
-        let (name, methods, inside) = match entity {
-            Entity::Class(c) => (c.name.as_str(), &mut c.methods, false),
-            Entity::Struct(s) => (s.name.as_str(), &mut s.methods, false),
-            Entity::Enum(e) => (e.name.as_str(), &mut e.methods, false),
-            Entity::Interface(i) => (i.name.as_str(), &mut i.methods, false),
-            Entity::Trait(t) => (t.name.as_str(), &mut t.methods, false),
-            Entity::Component(c) => (c.name.as_str(), &mut c.methods, false),
+        let (name, inside) = match entity {
+            Entity::Class(c) => (c.name.as_str(), false),
+            Entity::Struct(s) => (s.name.as_str(), false),
+            Entity::Enum(e) => (e.name.as_str(), false),
+            Entity::Interface(i) => (i.name.as_str(), false),
+            Entity::Trait(t) => (t.name.as_str(), false),
+            Entity::Component(c) => (c.name.as_str(), false),
             Entity::Extension(e) => match e.extended_type.as_deref() {
-                Some(extended) => (extended, &mut e.methods, true),
+                Some(extended) => (extended, true),
                 None => continue,
             },
             _ => continue,
         };
-        let mut names: Vec<String> = Vec::new();
-        for (owner, (start, end), method) in &members {
-            let placed = !inside || (location.start_line <= *start && *end <= location.end_line);
-            if owner == name && placed && !names.contains(method) {
-                names.push(method.clone());
-            }
-        }
+        let Some(list) = members.get(name) else {
+            continue;
+        };
+        // An extension's are those within it: from the first that starts in
+        // it, while they start in it.
+        let list = if inside {
+            let first = list.partition_point(|((start, _), _)| *start < location.start_line);
+            let past = first
+                + list[first..].partition_point(|((start, _), _)| *start <= location.end_line);
+            &list[first..past]
+        } else {
+            &list[..]
+        };
+        let mut seen = std::collections::HashSet::new();
+        let names: Vec<String> = list
+            .iter()
+            .filter(|((_, end), _)| !inside || *end <= location.end_line)
+            .filter(|(_, method)| seen.insert(*method))
+            .map(|(_, method)| (*method).to_string())
+            .collect();
         // A Go interface's methods are no functions; it names them itself.
         if !names.is_empty() {
-            *methods = Some(names);
+            attached.push((at, names));
         }
+    }
+    for (at, names) in attached {
+        let methods = match &mut entities[at] {
+            Entity::Class(c) => &mut c.methods,
+            Entity::Struct(s) => &mut s.methods,
+            Entity::Enum(e) => &mut e.methods,
+            Entity::Interface(i) => &mut i.methods,
+            Entity::Trait(t) => &mut t.methods,
+            Entity::Component(c) => &mut c.methods,
+            Entity::Extension(e) => &mut e.methods,
+            _ => continue,
+        };
+        *methods = Some(names);
     }
 }
 

@@ -26,8 +26,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 RELEASES = "https://github.com/vladimirpesic/devscriptor/releases/download"
 # PLATFORMS in crates/lsp/src/manager/mirror.rs.
 PLATFORMS = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch64", "windows-x86_64"]
-# OPTIONAL_FILES in model_fetch.rs, which pins no SHA-256 for them.
-OPTIONAL_MODEL_FILES = ["special_tokens_map.json"]
 
 
 def size_at(url):
@@ -86,11 +84,11 @@ def model_problems():
     release = re.search(r'^const MODEL_MIRROR_RELEASE: &str = "([^"]+)";$', source, re.M)
     if not release:
         return ["model_fetch.rs names no MODEL_MIRROR_RELEASE"]
-    start = source.find("const REQUIRED_FILE_SHA256")
+    start = source.find("const MODEL_FILE_SHA256")
     table = source[start : source.find("];", start)] if start >= 0 else ""
     pins = re.findall(r'\(\s*"([^"]+)",\s*"([0-9a-f]{64})",?\s*\)', table)
     if not pins:
-        return ["model_fetch.rs pins no file in REQUIRED_FILE_SHA256"]
+        return ["model_fetch.rs pins no file in MODEL_FILE_SHA256"]
     problems = []
     for path, pinned in pins:
         # The release holds the files side by side: `onnx/model_quantized.onnx`
@@ -101,12 +99,7 @@ def model_problems():
             problems.append(f"model: {url}: {error}")
         elif actual != pinned:
             problems.append(f"model: {url} has SHA-256 {actual}, not the pinned {pinned}")
-    for name in OPTIONAL_MODEL_FILES:
-        url = f"{RELEASES}/{release[1]}/{name}"
-        size = size_at(url)
-        if isinstance(size, str) or size <= 0:
-            problems.append(f"model: {url}: {size}")
-    print(f"{release[1]}: checked {len(pins)} pinned files and {len(OPTIONAL_MODEL_FILES)} other")
+    print(f"{release[1]}: checked {len(pins)} pinned files")
     return problems
 
 

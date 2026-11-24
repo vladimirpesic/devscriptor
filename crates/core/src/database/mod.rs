@@ -183,6 +183,17 @@ impl Drop for ReindexGuard<'_> {
     }
 }
 
+/// The files a file is connected to through the graph
+/// ([`Database::get_connected_files`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConnectedFiles {
+    /// Files whose entities the file's own call, inherit from, implement,
+    /// use, reference or override.
+    pub depends_on: Vec<String>,
+    /// Files whose entities do so to the file's own.
+    pub depended_on_by: Vec<String>,
+}
+
 impl Database {
     /// Create or open a database
     ///
@@ -523,6 +534,20 @@ impl Database {
         source_ids: &[EntityId],
     ) -> Result<Vec<StoredRef>> {
         operations::get_symbol_refs_for_sources(&self.pool, source_ids).await
+    }
+
+    /// The files `file_path` is connected to through the graph, at most
+    /// `limit` of each kind: those its entities call, inherit from, implement,
+    /// use, reference or override, and those whose entities do so to its own.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
+    pub async fn get_connected_files(
+        &self,
+        file_path: &str,
+        limit: usize,
+    ) -> Result<ConnectedFiles> {
+        operations::get_connected_files(&self.pool, file_path, limit).await
     }
 
     /// The imports of each of `paths` that has any, as the parser extracted

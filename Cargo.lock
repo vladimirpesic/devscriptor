@@ -657,7 +657,6 @@ dependencies = [
  "indicatif",
  "libc",
  "mach2",
- "memmap2",
  "moka",
  "notify",
  "num_cpus",

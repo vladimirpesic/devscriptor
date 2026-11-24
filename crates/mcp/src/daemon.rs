@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::unified_server::{ServerOptions, UnifiedMcpServer};
+use devscriptor_core::utils::canonical;
 
 /// How many hex digits of the SHA-256 the key keeps: 128 bits. The full 64
 /// would put the socket past the 104 bytes macOS allows a socket path, in a
@@ -101,26 +102,6 @@ pub fn key(workspace: &Path, database: &Path) -> String {
     let mut key = hex::encode(hasher.finalize());
     key.truncate(KEY_DIGITS);
     key
-}
-
-/// `path` as one spelling for every caller: canonical when it exists; when
-/// only its directory does (a database not created yet), that directory
-/// canonical with the file's name; else absolute.
-#[must_use]
-pub fn canonical(path: &Path) -> PathBuf {
-    if let Ok(path) = dunce::canonicalize(path) {
-        return path;
-    }
-    if let (Some(parent), Some(name)) = (path.parent(), path.file_name())
-        && let Ok(parent) = dunce::canonicalize(if parent.as_os_str().is_empty() {
-            Path::new(".")
-        } else {
-            parent
-        })
-    {
-        return parent.join(name);
-    }
-    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// The directory of the daemons' sockets, locks, sidecars and logs, created
@@ -299,7 +280,7 @@ pub async fn serve(
         tokio::select! {
             accepted = listener.accept() => match accepted {
                 Ok(stream) => {
-                    let server = server.clone();
+                    let server = server.for_session();
                     let open = Arc::clone(&open);
                     open.send_modify(|sessions| *sessions += 1);
                     tokio::spawn(async move {
@@ -796,16 +777,6 @@ mod tests {
         // Another database of the same workspace is another daemon.
         assert_ne!(key, super::key(&workspace, &dir.path().join("other.db")));
         assert_ne!(key, super::key(dir.path(), &database));
-    }
-
-    #[test]
-    fn a_missing_database_is_named_by_its_canonical_directory() {
-        let dir = tempfile::tempdir().unwrap();
-        let named = dir.path().join(".").join("index.db");
-        assert_eq!(
-            canonical(&named),
-            dunce::canonicalize(dir.path()).unwrap().join("index.db")
-        );
     }
 
     /// An endpoint in `dir`, for tests that must not touch the user's

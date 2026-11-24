@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import Mocha = require('mocha');
+import * as Mocha from 'mocha';
 
 export function run(): Promise<void> {
     const mocha = new Mocha({ ui: 'bdd', color: true, timeout: 30000 });

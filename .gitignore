@@ -11,6 +11,7 @@
 /test-data
 node_modules/
 out/
+.vscode-test/
 lsp-packages/
 lsp-servers/
 .DS_Store

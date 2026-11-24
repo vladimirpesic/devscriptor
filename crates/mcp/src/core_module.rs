@@ -190,6 +190,8 @@ impl From<devscriptor_core::Error> for ToolError {
 ///
 /// Allows 10 requests per second per tool with a burst capacity of 20.
 /// Non-blocking: returns immediately with `true` if the request is allowed.
+/// Each MCP session has one of its own ([`crate::UnifiedMcpServer::for_session`]),
+/// so one client's calls never use up another's.
 pub struct RateLimiter {
     inner: std::sync::Mutex<std::collections::HashMap<String, TokenBucket>>,
 }
@@ -292,17 +294,13 @@ pub(crate) static TOOL_IDS: std::sync::LazyLock<HashMap<&'static str, u8>> =
 /// Protocol-agnostic core module containing all business logic
 pub struct CoreModule {
     state: Arc<DevscriptorServerState>,
-    rate_limiter: RateLimiter,
 }
 
 impl CoreModule {
     /// Create a new [`CoreModule`] with the given state
     #[must_use]
     pub fn new(state: Arc<DevscriptorServerState>) -> Self {
-        Self {
-            state,
-            rate_limiter: RateLimiter::new(),
-        }
+        Self { state }
     }
 
     /// Get a reference to the internal state
@@ -638,21 +636,15 @@ impl CoreModule {
 
     /// Universal tool handler — routes to the appropriate implementation.
     ///
-    /// MCP-2: Rate limiting is checked before dispatch (10 req/sec, burst 20).
-    /// A tool that answers from the index answers from an index that is
-    /// current for the files its answer names, as far as the freshness budget
-    /// allows ([`crate::freshness::ensure_fresh`]).
+    /// Rate limiting is the MCP session's ([`crate::UnifiedMcpServer`]), not
+    /// this shared module's. A tool that answers from the index answers from
+    /// an index that is current for the files its answer names, as far as the
+    /// freshness budget allows ([`crate::freshness::ensure_fresh`]).
     pub async fn handle_tool(
         &self,
         name: &str,
         arguments: Option<Value>,
     ) -> Result<ToolResult, ToolError> {
-        if !self.rate_limiter.check(name) {
-            return Err(ToolError::RateLimited {
-                tool_name: name.to_string(),
-                retry_after_secs: 1,
-            });
-        }
         if reads_the_index(name) {
             return self.answer_from_current_index(name, arguments).await;
         }

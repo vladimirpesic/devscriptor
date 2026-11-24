@@ -17,7 +17,6 @@
 //! let config = ParserConfig {
 //!     enable_cache: true,
 //!     cache_size: 100,
-//!     mmap_threshold: 10 * 1024 * 1024,
 //!     enable_cleaning: true,
 //!     enable_validation: true,
 //!     skip_invalid_entities: true,
@@ -38,8 +37,8 @@ pub mod entity_extraction;
 pub mod import_extraction;
 pub mod language_config;
 pub mod language_loader;
-pub mod mmap_parser;
 pub mod prose;
+pub mod python_comments;
 pub mod relationship_extraction;
 pub mod standard_methods;
 pub mod symbol_table;
@@ -49,9 +48,6 @@ pub mod validation;
 pub use cross_file::{CrossFileMode, ExternalSymbol, SymbolResolution};
 pub use import_extraction::{ImportInfo, extract_imports};
 pub use symbol_table::{SymbolEntry, SymbolTable};
-
-// Re-export mmap parser types
-pub use mmap_parser::{MmapReader, MmapStats, MmapStr};
 
 // Re-export shared parsing constants
 pub mod constants;
@@ -93,8 +89,6 @@ pub struct ParserConfig {
     pub enable_cache: bool,
     /// Cache size limit (number of parsers to cache)
     pub cache_size: usize,
-    /// Memory-map files larger than this threshold (bytes)
-    pub mmap_threshold: usize,
     /// Enable entity cleaning (normalization and size limiting)
     pub enable_cleaning: bool,
     /// Enable entity validation
@@ -117,7 +111,6 @@ impl Default for ParserConfig {
             // Reduced in test builds: integration tests typically analyse a
             // small, fixed language set and do not need 100 cached parsers.
             cache_size: if cfg!(test) { 10 } else { 50 },
-            mmap_threshold: 10 * 1024 * 1024, // 10MB
             enable_cleaning: true,
             enable_validation: true,
             skip_invalid_entities: true,
@@ -307,7 +300,7 @@ impl TreeSitterParser {
         ))
     }
 
-    /// Read file content (with memory-mapping for large files)
+    /// Read file content.
     ///
     /// # Arguments
     ///
@@ -319,45 +312,51 @@ impl TreeSitterParser {
     ///
     /// # Errors
     ///
-    /// Returns an error if file reading fails or content is not valid UTF-8.
+    /// Returns an error if file reading fails, the file is larger than the
+    /// global size cap, or its content is not valid UTF-8.
     ///
-    /// Uses mmap for files above the configured threshold.
+    /// The file is opened once: its size is checked on that open file, and
+    /// the read itself stops one byte past the cap, so a file that grows after
+    /// the check is refused rather than read whole. The bytes are Devscriptor's
+    /// own from then on — a snapshot of the file — and UTF-8 is checked on
+    /// them, so another program writing the file during the read can change
+    /// what is parsed, never make it unsound.
     ///
     /// **Note:** this performs blocking I/O. The async entry point `parse_file` wraps the
     /// whole parse (this read + tree-sitter) in `tokio::task::spawn_blocking`, and the parse
     /// itself runs on a dedicated large-stack thread (`parse_content_large_stack`). The
     /// read is bounded by the file-size cap, so small files (the common case) complete quickly.
     fn read_file_content(&self, path: &Path) -> Result<String> {
+        use std::io::Read;
+
         use crate::utils::validation::DEFAULT_MAX_FILE_SIZE;
 
-        let metadata = std::fs::metadata(path)?;
-        let len = metadata.len();
-
-        // Reject files larger than the global max, which could exhaust memory.
-        if len > DEFAULT_MAX_FILE_SIZE {
-            return Err(Error::Generic(format!(
+        let too_large = || {
+            Error::Generic(format!(
                 "File exceeds maximum size ({} MiB): {}",
                 DEFAULT_MAX_FILE_SIZE / 1024 / 1024,
                 path.display()
-            )));
-        }
-
-        // Compare file length as u64 to avoid 32-bit truncation on usize::try_from.
-        let content = if len > self.config.mmap_threshold as u64 {
-            // The MmapStr wrapper validates UTF-8 once at open time, holds the file
-            // alive, and takes an advisory flock on Unix.
-            //
-            // `to_owned_string` copies the mapping into
-            // an owned `String`, so mmap's net benefit here is the advisory flock
-            // + lazy fault-in rather than zero-copy. Returning an owned `String`
-            // keeps a single read path for both branches; parsing directly off the
-            // borrowed `&str` would avoid the copy but is not worth the lifetime
-            // plumbing given the file-size cap bounds the allocation.
-            let mapped = crate::parser::mmap_parser::MmapStr::open(path)?;
-            mapped.to_owned_string()
-        } else {
-            std::fs::read_to_string(path)?
+            ))
         };
+        let file = std::fs::File::open(path)?;
+        let len = file.metadata()?.len();
+        // Reject files larger than the global max, which could exhaust memory.
+        if len > DEFAULT_MAX_FILE_SIZE {
+            return Err(too_large());
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
+        file.take(DEFAULT_MAX_FILE_SIZE + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > DEFAULT_MAX_FILE_SIZE {
+            return Err(too_large());
+        }
+        let content = String::from_utf8(bytes).map_err(|_| {
+            Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("stream did not contain valid UTF-8: {}", path.display()),
+            ))
+        })?;
+        let len = content.len() as u64;
 
         // Universal minified/generated-file guard: files that pack enormous
         // content onto a single line are not meaningfully analyzable and can
@@ -482,6 +481,15 @@ impl TreeSitterParser {
         // Each call gets its own Parser built from the cached Language.
         // No lock needed — Parser is local to this stack frame.
         let mut parser = self.cache.get_parser(language)?;
+        // A long run of Python comments would cost its length squared in the
+        // grammar's scanner; the parser reads around it (`python_comments`).
+        if language == "python"
+            && let Some(ranges) = python_comments::included_ranges(content)
+        {
+            parser
+                .set_included_ranges(&ranges)
+                .map_err(|e| Error::Parser(format!("invalid parse ranges: {e}")))?;
+        }
 
         let tree = parser
             .parse(content, None)
@@ -1081,6 +1089,103 @@ pub fn parse_content_sync(content: &str, language: &str, path: &Path) -> Result<
 mod tests {
     use super::*;
 
+    /// A source file of some megabytes rewritten, truncated and filled with
+    /// bytes that are not UTF-8 while it is parsed over and over: every parse
+    /// ends in a result or a clean error, never a crash, and what is parsed is
+    /// one consistent read of the file.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_changing_while_it_is_read_never_crashes_a_parse() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.py");
+        let line = format!("# {}\n", "a".repeat(96));
+        let valid = format!(
+            "def f():\n    return 1\n{}",
+            line.repeat(2 * 1024 * 1024 / line.len())
+        );
+        std::fs::write(&path, &valid).unwrap();
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let writer = {
+            let (path, stop, valid) = (path.clone(), stop.clone(), valid.clone());
+            std::thread::spawn(move || {
+                use std::io::{Seek, Write};
+                let mut round = 0u32;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let mut file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+                    match round % 3 {
+                        // Truncate in place, as an editor rewriting it does.
+                        0 => file.set_len(valid.len() as u64 / 2).unwrap(),
+                        // Bytes that are not UTF-8, mid-file.
+                        1 => {
+                            file.seek(std::io::SeekFrom::Start(valid.len() as u64 / 2))
+                                .unwrap();
+                            file.write_all(&[0xff, 0xfe, 0xfd]).unwrap();
+                        }
+                        // The valid contents again.
+                        _ => {
+                            file.seek(std::io::SeekFrom::Start(0)).unwrap();
+                            file.write_all(valid.as_bytes()).unwrap();
+                        }
+                    }
+                    round += 1;
+                }
+            })
+        };
+
+        let parser = TreeSitterParser::new(ParserConfig::default()).unwrap();
+        let (mut parsed, mut refused) = (0, 0);
+        for _ in 0..12 {
+            match parser.parse_file(&path).await {
+                Ok(_) => parsed += 1,
+                Err(_) => refused += 1,
+            }
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        writer.join().unwrap();
+        assert_eq!(parsed + refused, 12);
+    }
+
+    /// A Python file that is mostly one long comment block parses in time
+    /// linear in its size, and the definitions around the block keep their
+    /// line numbers.
+    #[test]
+    fn a_long_python_comment_block_parses_quickly_and_in_place() {
+        let block = "# a comment line of the kind a large generated file holds\n".repeat(20_000);
+        let content = format!("def before():\n    return 1\n{block}def after():\n    return 2\n");
+        let started = std::time::Instant::now();
+        let parsed = parse_content_sync(&content, "python", Path::new("big.py")).unwrap();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+        let line_of = |name: &str| {
+            parsed
+                .entities
+                .iter()
+                .find(|entity| entity.name() == name)
+                .unwrap_or_else(|| panic!("{name} is found"))
+                .location()
+                .start_line
+        };
+        assert_eq!(line_of("before"), 1);
+        assert_eq!(line_of("after"), 20_003);
+    }
+
+    /// A file larger than the cap is refused, whatever its size was when it
+    /// was opened: the read itself stops past the cap.
+    #[test]
+    fn a_file_past_the_cap_is_refused() {
+        use crate::utils::validation::DEFAULT_MAX_FILE_SIZE;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.py");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(DEFAULT_MAX_FILE_SIZE + 1).unwrap();
+        let parser = TreeSitterParser::new(ParserConfig::default()).unwrap();
+        let error = parser.read_file_content(&path).unwrap_err().to_string();
+        assert!(error.contains("exceeds maximum size"), "{error}");
+    }
+
     #[test]
     fn test_parser_config_default() {
         let config = ParserConfig::default();
@@ -1088,7 +1193,6 @@ mod tests {
         // In test builds cache_size is reduced to 10; in production it is 50.
         let expected = if cfg!(test) { 10 } else { 50 };
         assert_eq!(config.cache_size, expected);
-        assert_eq!(config.mmap_threshold, 10 * 1024 * 1024);
         assert!(config.enable_cleaning);
         assert!(config.enable_validation);
         assert!(config.skip_invalid_entities);
@@ -1202,7 +1306,6 @@ mod tests {
         let config = ParserConfig {
             enable_cache: false,
             cache_size: 50,
-            mmap_threshold: 5 * 1024 * 1024,
             enable_cleaning: false,
             enable_validation: false,
             skip_invalid_entities: false,

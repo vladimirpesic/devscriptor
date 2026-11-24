@@ -76,16 +76,7 @@ pub fn extract_relationships(
     let config = get_language_config(language);
     let names = LocalNames::new(entities, imports, ambiguous_fanout, language, file_path);
     let module = provisional_module(tree, content, entities, language, file_path);
-    let mut line_index = build_line_index(entities);
-    if let Some(module) = &module {
-        let location = module.location();
-        line_index.push((
-            (location.start_line, location.start_column),
-            (location.end_line, location.end_column),
-            module.id(),
-        ));
-        line_index.sort_by_key(|(start, _, _)| *start);
-    }
+    let mut line_index = Extents::new(entities.iter().chain(&module));
 
     let mut cursor = tree.root_node().walk();
 
@@ -119,7 +110,7 @@ pub fn extract_relationships(
         calls
     });
     if module.is_none() {
-        line_index = build_line_index(entities);
+        line_index = Extents::new(entities);
     }
     record_value_uses(
         tree,
@@ -440,54 +431,99 @@ type Position = (u32, u32);
 /// Where an entity starts and ends, and which it is.
 type Extent = (Position, Position, Uuid);
 
-/// The entities' extents, sorted by where they start.
-fn build_line_index(entities: &[Entity]) -> Vec<Extent> {
-    let mut index: Vec<Extent> = entities
-        .iter()
-        .map(|e| {
-            let loc = e.location();
-            (
-                (loc.start_line, loc.start_column),
-                (loc.end_line, loc.end_column),
-                e.id(),
-            )
-        })
-        .collect();
-    index.sort_by_key(|(start, _, _)| *start);
-    index
+/// The entities' extents, sorted by where they start, linked so that the
+/// innermost one holding a place is found without walking every extent
+/// before it.
+struct Extents {
+    sorted: Vec<Extent>,
+    /// For each extent, the nearest one before it that ends no earlier, if
+    /// any: every extent between the two ends before it does. Where extents
+    /// nest, as the nodes they come from do, it is the one around it.
+    enclosing: Vec<Option<usize>>,
 }
 
-/// The innermost of the extents that `holds` accepts, all of which start at
-/// or before `from`: of them, the one starting last, and of those starting
-/// there, the one ending first. Lines alone cannot tell two entities on one
-/// line apart: a call there would be the first's whichever it is in.
-fn innermost_extent_holding(
-    line_index: &[Extent],
-    from: Position,
-    holds: impl Fn(&Extent) -> bool,
-) -> Option<Uuid> {
-    let candidates = &line_index[..line_index.partition_point(|(start, _, _)| *start <= from)];
-    let mut innermost: Option<&Extent> = None;
-    for extent in candidates.iter().rev() {
-        // What starts before the innermost holder found holds it, if anything.
-        if innermost.is_some_and(|(start, _, _)| extent.0 < *start) {
-            break;
-        }
-        if holds(extent) && innermost.is_none_or(|(_, end, _)| extent.1 < *end) {
-            innermost = Some(extent);
-        }
+impl Extents {
+    fn new<'e>(entities: impl IntoIterator<Item = &'e Entity>) -> Self {
+        let mut sorted: Vec<Extent> = entities
+            .into_iter()
+            .map(|e| {
+                let loc = e.location();
+                (
+                    (loc.start_line, loc.start_column),
+                    (loc.end_line, loc.end_column),
+                    e.id(),
+                )
+            })
+            .collect();
+        sorted.sort_by_key(|(start, _, _)| *start);
+        Self::new_sorted(sorted)
     }
-    innermost.map(|(_, _, id)| *id)
+
+    /// The index of extents already sorted by where they start.
+    fn new_sorted(sorted: Vec<Extent>) -> Self {
+        let mut enclosing = Vec::with_capacity(sorted.len());
+        // The extents that may yet enclose one, the latest last; each ends
+        // no later than the one before it.
+        let mut open: Vec<usize> = Vec::new();
+        for (at, (_, end, _)) in sorted.iter().enumerate() {
+            while open.last().is_some_and(|&last| sorted[last].1 < *end) {
+                open.pop();
+            }
+            enclosing.push(open.last().copied());
+            open.push(at);
+        }
+        Self { sorted, enclosing }
+    }
+
+    /// The innermost of the extents that `holds` accepts, all of which start
+    /// at or before `from` and end at or after `reach`: of them, the one
+    /// starting last, and of those starting there, the one ending first.
+    /// Lines alone cannot tell two entities on one line apart: a call there
+    /// would be the first's whichever it is in.
+    fn innermost(
+        &self,
+        from: Position,
+        reach: Position,
+        holds: impl Fn(&Extent) -> bool,
+    ) -> Option<Uuid> {
+        let mut at = self
+            .sorted
+            .partition_point(|(start, _, _)| *start <= from)
+            .checked_sub(1);
+        // The last to start of those that hold. One that does not hold and
+        // ends at or before `reach` is passed with every extent back to the
+        // one enclosing it: they all end before it does, so none holds.
+        let last = loop {
+            let i = at?;
+            let extent = &self.sorted[i];
+            if holds(extent) {
+                break i;
+            }
+            at = if extent.1 <= reach {
+                self.enclosing[i]
+            } else {
+                i.checked_sub(1)
+            };
+        };
+        let start = self.sorted[last].0;
+        self.sorted[..=last]
+            .iter()
+            .rev()
+            .take_while(|extent| extent.0 == start)
+            .filter(|extent| holds(extent))
+            .min_by_key(|extent| extent.1)
+            .map(|(_, _, id)| *id)
+    }
 }
 
 /// The entity a node is in: the innermost one whose extent holds where the
 /// node starts.
-fn find_containing_entity(node: Node, line_index: &[Extent]) -> Option<Uuid> {
+fn find_containing_entity(node: Node, line_index: &Extents) -> Option<Uuid> {
     let at = (
         start_line(node),
         u32::try_from(node.start_position().column).unwrap_or(0),
     );
-    innermost_extent_holding(line_index, at, |(start, end, _)| *start <= at && at < *end)
+    line_index.innermost(at, at, |(start, end, _)| *start <= at && at < *end)
 }
 
 /// Recursively traverse the tree and extract relationships
@@ -501,7 +537,7 @@ fn traverse_and_extract_relationships(
     language: &str,
     config: &crate::parser::language_config::LanguageNodeConfig,
     names: &LocalNames,
-    line_index: &[Extent],
+    line_index: &Extents,
     out: &mut Extraction,
     depth: usize,
 ) {
@@ -542,7 +578,7 @@ fn try_extract_relationship(
     language: &str,
     config: &crate::parser::language_config::LanguageNodeConfig,
     names: &LocalNames,
-    line_index: &[Extent],
+    line_index: &Extents,
     out: &mut Extraction,
 ) {
     let node_type = node.kind();
@@ -758,7 +794,7 @@ fn record_value_uses(
     language: &str,
     config: &crate::parser::language_config::LanguageNodeConfig,
     names: &LocalNames,
-    line_index: &[Extent],
+    line_index: &Extents,
     out: &mut Extraction,
 ) {
     // Markup and query languages name nothing the way code does; a
@@ -888,7 +924,8 @@ impl ValueUses<'_, '_> {
         let module_object = member_name(parent).is_some() && self.names.bound.contains(text);
         // A parameter's own name, but not its default value.
         let parameter = parent.kind().contains("parameter")
-            && !field_of(node).is_some_and(|field| matches!(field, "value" | "default_value"));
+            && !in_field(node, "value")
+            && !in_field(node, "default_value");
         if text.is_empty()
             || module_object
             || parameter
@@ -1015,14 +1052,47 @@ fn is_member_name(node: Node) -> bool {
     false
 }
 
-/// The field `node` is in its parent, if any.
-fn field_of<'t>(node: Node<'t>) -> Option<&'t str> {
-    let parent = node.parent()?;
-    let mut cursor = parent.walk();
-    let index = parent
-        .children(&mut cursor)
-        .position(|child| child == node)?;
-    parent.field_name_for_child(u32::try_from(index).ok()?)
+/// Whether `node` is in `field` of its parent.
+///
+/// Asked of the field rather than of the node's place among its siblings: a
+/// parent without the field says so at once, where finding the node's place
+/// walks every sibling before it, which for each name in a module of many
+/// definitions made a file's extraction quadratic.
+fn in_field(node: Node, field: &str) -> bool {
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    match parent.child_by_field_name(field) {
+        None => false,
+        Some(first) if first == node => true,
+        Some(_) => {
+            let mut cursor = parent.walk();
+            parent
+                .children_by_field_name(field, &mut cursor)
+                .any(|child| child == node)
+        }
+    }
+}
+
+/// `node`'s children, each with the field it is in, read in one walk: asking
+/// each child's field by its place walks the children before it again.
+fn children_and_fields<'t>(node: Node<'t>) -> Vec<(Node<'t>, Option<&'t str>)> {
+    let mut cursor = node.walk();
+    let mut children = Vec::new();
+    if cursor.goto_first_child() {
+        loop {
+            children.push((cursor.node(), cursor.field_name()));
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+    children
+}
+
+/// The first of `fields` that `node` is in, if any ([`in_field`]).
+fn field_among<'f>(node: Node, fields: impl IntoIterator<Item = &'f str>) -> Option<&'f str> {
+    fields.into_iter().find(|field| in_field(node, field))
 }
 
 /// Whether `node` is bound by a pattern around it — a destructuring, a
@@ -1058,7 +1128,7 @@ fn in_supertypes(node: Node) -> bool {
         let Some(around) = ancestor else {
             return false;
         };
-        if SUPERTYPE_CLAUSES.contains(&around.kind()) || field_of(around) == Some("superclasses") {
+        if SUPERTYPE_CLAUSES.contains(&around.kind()) || in_field(around, "superclasses") {
             return true;
         }
         ancestor = around.parent();
@@ -1119,23 +1189,27 @@ fn is_callee(node: Node, config: &crate::parser::language_config::LanguageNodeCo
 /// a loop's `variable` or `item` does, and writes a member, which is a use.
 fn declares(node: Node) -> bool {
     let node = unwrapped(node);
-    let (Some(parent), Some(field)) = (node.parent(), field_of(node)) else {
+    // The fields that bind only in some parents, then those that always do.
+    let fields = ["left", "variable", "item", "key"]
+        .into_iter()
+        .chain(DECLARING_FIELDS.iter().copied());
+    let (Some(parent), Some(field)) = (node.parent(), field_among(node, fields)) else {
         return false;
     };
     let parent_kind = parent.kind();
-    // An assignment's target, a loop's variable (the shell's `for v in`).
-    if matches!(field, "left" | "variable" | "item") {
-        let binds = parent_kind.contains("assignment")
-            || parent_kind.contains("declaration")
-            || is_loop(parent_kind);
-        return binds && member_name(node).is_none();
+    match field {
+        // An assignment's target, a loop's variable (the shell's `for v in`).
+        "left" | "variable" | "item" => {
+            let binds = parent_kind.contains("assignment")
+                || parent_kind.contains("declaration")
+                || is_loop(parent_kind);
+            binds && member_name(node).is_none()
+        }
+        // An annotation's argument name (Java's `@Size(max = …)`); a
+        // dictionary's key (a `pair`'s) may be a constant.
+        "key" => parent_kind != "pair",
+        _ => true,
     }
-    // An annotation's argument name (Java's `@Size(max = …)`); a dictionary's
-    // key (a `pair`'s) may be a constant.
-    if field == "key" {
-        return parent_kind != "pair";
-    }
-    DECLARING_FIELDS.contains(&field)
 }
 
 /// Whether `node` is in a type: its parent or grandparent is one
@@ -1167,7 +1241,7 @@ fn extract_call_relationships(
     content: &str,
     language: &str,
     names: &LocalNames,
-    line_index: &[Extent],
+    line_index: &Extents,
     out: &mut Extraction,
 ) {
     // Find the containing entity (source of the call)
@@ -1225,11 +1299,7 @@ fn locally_bound_names(function: Node, content: &str) -> std::collections::HashS
         }
         // What a declaration is given — its value, type or body — binds
         // nothing: `int x = Limits.MAX + MAX` binds `x` alone.
-        let mut cursor = node.walk();
-        for (index, child) in node.children(&mut cursor).enumerate() {
-            let field = u32::try_from(index)
-                .ok()
-                .and_then(|index| node.field_name_for_child(index));
+        for (child, field) in children_and_fields(node) {
             if child.is_named() && !field.is_some_and(|field| VALUE_FIELDS.contains(&field)) {
                 identifiers(child, content, out);
             }
@@ -1238,10 +1308,12 @@ fn locally_bound_names(function: Node, content: &str) -> std::collections::HashS
     /// Kotlin's `variable_declaration` names its variable in no field: its
     /// first name that is no type.
     fn declared_name(node: Node) -> Option<Node> {
-        let mut cursor = node.walk();
-        node.named_children(&mut cursor).find(|child| {
-            matches!(child.kind(), "identifier" | "simple_identifier") && field_of(*child).is_none()
-        })
+        children_and_fields(node)
+            .into_iter()
+            .find(|(child, field)| {
+                matches!(child.kind(), "identifier" | "simple_identifier") && field.is_none()
+            })
+            .map(|(child, _)| child)
     }
     /// Kotlin's declarations name their variable in a child, not a field.
     fn declared_variable(node: Node) -> Option<Node> {
@@ -1330,7 +1402,7 @@ fn extract_token_tree_calls(
     node: Node,
     content: &str,
     names: &LocalNames,
-    line_index: &[Extent],
+    line_index: &Extents,
     out: &mut Extraction,
 ) {
     let mut cursor = node.walk();
@@ -2070,7 +2142,7 @@ fn extract_import_relationship(
     content: &str,
     language: &str,
     names: &LocalNames,
-    line_index: &[Extent],
+    line_index: &Extents,
     out: &mut Extraction,
 ) {
     let Some(source_id) = find_containing_entity(node, line_index) else {
@@ -2255,7 +2327,7 @@ fn extract_import_relationship(
 /// that are nested within each other (e.g., methods inside a class).
 fn extract_hierarchical_relationships(
     entities: &[Entity],
-    line_index: &[Extent],
+    line_index: &Extents,
     id_map: &std::collections::HashMap<Uuid, &str>,
 ) -> Vec<Relationship> {
     let mut relationships = Vec::new();
@@ -2278,7 +2350,7 @@ fn extract_hierarchical_relationships(
             (loc.start_line, loc.start_column),
             (loc.end_line, loc.end_column),
         );
-        let parent_id = innermost_extent_holding(line_index, start, |(c_start, c_end, _)| {
+        let parent_id = line_index.innermost(start, end, |(c_start, c_end, _)| {
             *c_start <= start && end <= *c_end && (*c_start, *c_end) != (start, end)
         });
 
@@ -2383,6 +2455,76 @@ pub(crate) fn reverse_of(rel_type: &RelationshipType) -> Option<RelationshipType
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The innermost holder as a walk over every extent before the place
+    /// finds it, which [`Extents::innermost`] must agree with.
+    fn innermost_by_walking(
+        sorted: &[Extent],
+        from: Position,
+        holds: impl Fn(&Extent) -> bool,
+    ) -> Option<Uuid> {
+        let candidates = &sorted[..sorted.partition_point(|(start, _, _)| *start <= from)];
+        let mut innermost: Option<&Extent> = None;
+        for extent in candidates.iter().rev() {
+            if innermost.is_some_and(|(start, _, _)| extent.0 < *start) {
+                break;
+            }
+            if holds(extent) && innermost.is_none_or(|(_, end, _)| extent.1 < *end) {
+                innermost = Some(extent);
+            }
+        }
+        innermost.map(|(_, _, id)| *id)
+    }
+
+    /// Nested, side by side, sharing a start or an end (a Python class ends
+    /// where its last method does), or overlapping as no nodes do: the
+    /// innermost holder of every place and of every extent is the one a walk
+    /// over all of them finds.
+    #[test]
+    fn the_innermost_holder_is_the_one_a_full_walk_finds() {
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |bound: u32| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            u32::try_from(seed % u64::from(bound)).unwrap()
+        };
+        for _ in 0..500 {
+            let count = next(30) as usize;
+            let mut extents: Vec<Extent> = (0..count)
+                .map(|_| {
+                    let start = (next(12), next(4));
+                    let end = (start.0 + next(6), next(4));
+                    (start, end.max(start), Uuid::new_v4())
+                })
+                .collect();
+            extents.sort_by_key(|(start, _, _)| *start);
+            let index = Extents::new_sorted(extents);
+            for line in 0..20 {
+                for column in 0..5 {
+                    let at = (line, column);
+                    let holds = |(start, end, _): &Extent| *start <= at && at < *end;
+                    assert_eq!(
+                        index.innermost(at, at, holds),
+                        innermost_by_walking(&index.sorted, at, holds),
+                        "{at:?} in {:?}",
+                        index.sorted
+                    );
+                }
+            }
+            for &(start, end, _) in &index.sorted {
+                let holds = |(c_start, c_end, _): &Extent| {
+                    *c_start <= start && end <= *c_end && (*c_start, *c_end) != (start, end)
+                };
+                assert_eq!(
+                    index.innermost(start, end, holds),
+                    innermost_by_walking(&index.sorted, start, holds),
+                    "{start:?}..{end:?} in {:?}",
+                    index.sorted
+                );
+            }
+        }
+    }
 
     /// A forward kind and its reverse sit on opposite sides of `is_reverse`,
     /// which tells a file's own edges from the edges other files have into it

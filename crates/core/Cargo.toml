@@ -82,7 +82,6 @@ tracing = { workspace = true }
 # Utilities
 uuid = { workspace = true }
 time = { workspace = true }
-memmap2 = { workspace = true }
 parking_lot = { workspace = true }
 moka = { workspace = true }
 regex = { workspace = true }

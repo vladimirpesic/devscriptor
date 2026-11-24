@@ -16,8 +16,11 @@ loads anything, what it reads, who may talk to its server, and where it uses
 
 ## Reporting a vulnerability
 
-Report a vulnerability privately by email to **<contact@devscriptor.com>**, not in
-a public issue.
+Report a vulnerability privately, not in a public issue: with GitHub's private
+vulnerability reporting
+([open a report](https://github.com/vladimirpesic/devscriptor/security/advisories/new))
+or by email to **<contact@devscriptor.com>**. [SECURITY.md](../SECURITY.md) says
+what to include.
 
 ## SQLite extensions
 
@@ -53,7 +56,7 @@ fails the download (fail-closed):
 
 | Asset | Verification | Where |
 | --- | --- | --- |
-| Embedding model files | SHA-256 of each of the four files, pinned in the code | `crates/core/src/embeddings/model_fetch.rs` |
+| Embedding model files | SHA-256 of each of the five files it downloads, pinned in the code; a file without a pin is never downloaded | `crates/core/src/embeddings/model_fetch.rs` |
 | Embedding model revision | Hugging Face downloads name an immutable commit (`516f4baf…`), never `main` | `crates/core/src/embeddings/model_fetch.rs` |
 | Language server from the mirror | SHA-256 of the archive, pinned in the build with the mirror release | `crates/lsp/src/manager/mirror.json`, `downloader.rs` |
 | Language server from GitHub or its publisher | SHA-256 GitHub publishes for the release asset, the one the registry pins, or, for kotlin-lsp's latest build, the one JetBrains publishes beside it | `crates/lsp/src/manager/downloader.rs` |
@@ -117,13 +120,12 @@ Install language servers only from sources you trust.
 
 ## Memory safety
 
-Devscriptor is written in Rust. Shipped code has sixteen `unsafe` blocks: eleven
+Devscriptor is written in Rust. Shipped code has twelve `unsafe` blocks: seven
 in `devscriptor-core`, one in `devscriptor-lsp`, three in `devscriptor-mcp` and
 one in `devscriptor-cli`.
 
 | Where | Count | Why |
 | --- | ---: | --- |
-| `core/src/parser/mmap_parser.rs` | 4 | Memory-mapped reads of large files: `flock` and its release, `Mmap::map`, and zero-copy `from_utf8_unchecked` (UTF-8 validity is established when the file is opened) |
 | `core/src/database/connection.rs` | 3 | C FFI: the `sqlite3_auto_extension` callback that registers the statically linked `sqlite-vec` |
 | `core/src/utils/performance.rs` | 3 | `libc::sysconf` and platform memory queries |
 | `core/src/embeddings/tract_backend.rs` | 1 | Reads the model's output tensor as an `f32` slice (`from_raw_parts` over the tensor tract allocated) |
@@ -149,12 +151,17 @@ security-relevant ones:
   `webpki-roots` bundles: there is no OpenSSL in the tree
 
 All dependencies are pinned in `Cargo.lock`, and CI runs `cargo audit` on every
-push to `main` and every pull request.
+push to `main` and every pull request. The VS Code extension's packages are pinned
+in `vscode-extension/package-lock.json`, and CI runs `npm audit` over all of them,
+the one the extension ships (`which`, with `isexe`) and the tools it is built,
+linted, tested and packaged with alike: a known vulnerability in either fails CI.
 
 ## Running Devscriptor safely
 
 1. **Use a verified build**: check the `.sha256` published beside each release
-   archive, or build from source (see [Building](building.md)).
+   archive and the archive's build provenance (`gh attestation verify`, see
+   [Installation](installation.md#linux-and-macos)), or build from source (see
+   [Building](building.md)).
 2. **Sandbox untrusted code**: run Devscriptor in a container or a restricted
    environment when you analyse a codebase you do not trust.
 3. **Review language servers** before you install them, and trust a project's

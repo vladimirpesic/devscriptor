@@ -765,6 +765,56 @@ pub async fn replace_edges_of_sources(
     .map_err(|e| crate::error::Error::task_join("replace edges", e))?
 }
 
+/// The kinds of edge that make their source depend on their target. Only
+/// these are followed between files: every one of them is stored with its
+/// reverse as well, which would otherwise count each connection twice.
+const DEPENDENCY_EDGES: [crate::entities::RelationshipType; 6] = [
+    crate::entities::RelationshipType::Calls,
+    crate::entities::RelationshipType::Inherits,
+    crate::entities::RelationshipType::Implements,
+    crate::entities::RelationshipType::Uses,
+    crate::entities::RelationshipType::References,
+    crate::entities::RelationshipType::Overrides,
+];
+
+/// See [`super::Database::get_connected_files`].
+pub async fn get_connected_files(
+    pool: &ConnectionPool,
+    file_path: &str,
+    limit: usize,
+) -> Result<super::ConnectedFiles> {
+    let pool = pool.clone();
+    let file_path = file_path.to_string();
+    tokio::task::spawn_blocking(move || {
+        let conn = pool.get()?;
+        let kinds = DEPENDENCY_EDGES
+            .iter()
+            .map(|kind| format!("'{}'", kind.as_str()))
+            .collect::<Vec<_>>()
+            .join(",");
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let across = |from: &str, to: &str| -> rusqlite::Result<Vec<String>> {
+            let sql = format!(
+                "SELECT DISTINCT o.file_path FROM entities f \
+                 JOIN relationships r ON r.{from} = f.id \
+                 JOIN entities o ON o.id = r.{to} \
+                 WHERE f.file_path = ?1 AND o.file_path <> ?1 \
+                 AND r.relationship_type IN ({kinds}) \
+                 ORDER BY o.file_path LIMIT ?2"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params![file_path, limit], |row| row.get(0))?;
+            rows.collect()
+        };
+        Ok(super::ConnectedFiles {
+            depends_on: across("source_id", "target_id")?,
+            depended_on_by: across("target_id", "source_id")?,
+        })
+    })
+    .await
+    .map_err(|e| crate::error::Error::task_join("read connected files", e))?
+}
+
 /// See [`super::Database::get_file_imports`]. `alias` holds the name an
 /// import binds, `imported_name` the member it names (none for a whole
 /// module or a wildcard, whose binding is `*`).

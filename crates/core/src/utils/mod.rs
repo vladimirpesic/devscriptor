@@ -6,6 +6,7 @@
 pub mod gitignore_filter;
 pub mod memory_guard;
 pub mod numbered;
+pub mod paths;
 pub mod performance;
 pub mod security;
 pub mod type_helpers;
@@ -13,6 +14,7 @@ pub mod validation;
 
 pub use gitignore_filter::GitignoreFilter;
 pub use numbered::number_lines;
+pub use paths::canonical;
 pub use security::{
     FileChangeDetector, compute_file_hash, contains_shell_metacharacters, sanitize_error_message,
     sanitize_for_shell, sanitize_path_for_display, verify_file_hash,

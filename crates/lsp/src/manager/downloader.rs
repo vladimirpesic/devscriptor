@@ -714,26 +714,16 @@ async fn fetch_release(release_url: &str) -> Result<GitHubRelease> {
         .and_then(reqwest::Response::error_for_status)
         .context("Failed to fetch release info")?;
 
-    // SECURITY: Limit response size to prevent memory exhaustion
-    let content_length = response.content_length().unwrap_or(0);
-    if content_length > MAX_GITHUB_RESPONSE_SIZE as u64 {
-        return Err(anyhow!(
-            "GitHub API response too large: {content_length} bytes"
-        ));
-    }
-
-    let release_text = response
-        .text()
-        .await
-        .context("Failed to get release text")?;
-
-    // SECURITY: Check response size after reading
-    if release_text.len() > MAX_GITHUB_RESPONSE_SIZE {
-        return Err(anyhow!("GitHub API response exceeded maximum size"));
-    }
+    // SECURITY: read within the size limit, stopping as soon as it is passed,
+    // whatever length the response declares.
+    let release = read_capped(response, MAX_GITHUB_RESPONSE_SIZE)
+        .await?
+        .ok_or_else(|| {
+            anyhow!("GitHub API response is larger than {MAX_GITHUB_RESPONSE_SIZE} bytes")
+        })?;
 
     // SECURITY: Parse into strongly-typed struct with validation
-    serde_json::from_str(&release_text).context("Failed to parse release info")
+    serde_json::from_slice(&release).context("Failed to parse release info")
 }
 
 /// The version of the latest build of a server that tracks it
@@ -1282,22 +1272,43 @@ async fn published_sha256(server_info: &ServerInfo, checksum_url: &str) -> Resul
              ({why}), so it cannot be verified"
         )
     };
-    let mut response = LSP_HTTP_CLIENT
+    let response = LSP_HTTP_CLIENT
         .get(checksum_url)
         .header("User-Agent", "devscriptor-lsp-manager")
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
         .map_err(|e| unverifiable(&e))?;
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|e| unverifiable(&e))? {
-        body.extend_from_slice(&chunk);
-        if body.len() > MAX_CHECKSUM_FILE_BYTES {
-            return Err(unverifiable(&"the file is too large"));
-        }
-    }
+    let body = read_capped(response, MAX_CHECKSUM_FILE_BYTES)
+        .await
+        .map_err(|e| unverifiable(&e))?
+        .ok_or_else(|| unverifiable(&"the file is too large"))?;
     sha256_in(&String::from_utf8_lossy(&body))
         .ok_or_else(|| unverifiable(&"the file holds no SHA-256"))
+}
+
+/// `response`'s body, or `None` when it is larger than `limit` bytes: by the
+/// length it declares, or as it arrives, chunk by chunk, so no more than
+/// `limit` bytes of it are ever held.
+async fn read_capped(mut response: reqwest::Response, limit: usize) -> Result<Option<Vec<u8>>> {
+    if response
+        .content_length()
+        .is_some_and(|len| len > limit as u64)
+    {
+        return Ok(None);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .context("Failed to read the response")?
+    {
+        if body.len() + chunk.len() > limit {
+            return Ok(None);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(Some(body))
 }
 
 /// The SHA-256 a checksum file holds: its first word, as `sha256sum` writes

@@ -64,6 +64,14 @@ tar -xzf "devscriptor-${VERSION}-${TARGET}.tar.gz"
 sudo mv "devscriptor-${VERSION}-${TARGET}/devscriptor" /usr/local/bin/
 ```
 
+Each archive also has a build provenance attestation: GitHub's signed record that
+the release workflow (`.github/workflows/release.yml`) built it from the commit of
+the release's tag. Check it with the [GitHub CLI](https://cli.github.com/):
+
+```bash
+gh attestation verify "devscriptor-${VERSION}-${TARGET}.tar.gz" --repo vladimirpesic/devscriptor
+```
+
 On macOS, Gatekeeper may quarantine the unsigned binary on its first launch; clear
 the flag with `xattr -d com.apple.quarantine /usr/local/bin/devscriptor`. The Intel
 build also runs on Apple Silicon through Rosetta 2, but prefer the native one there.

@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::core_module::{CoreModule, ToolResult};
+use crate::core_module::{CoreModule, RateLimiter, ToolError, ToolResult};
 use rmcp::ErrorData as McpError;
 use rmcp::ServerHandler;
 use rmcp::model::{
@@ -248,6 +248,9 @@ impl ServerOptions {
 pub struct UnifiedMcpServer {
     /// Core module for code analysis tools.
     core: Arc<CoreModule>,
+    /// This session's allowance of core tool calls: each session has its own
+    /// ([`Self::for_session`]), so one client cannot use up another's.
+    limiter: Arc<RateLimiter>,
     /// LSP translator for language server tools (optional).
     #[cfg(feature = "lsp")]
     translator: Option<Arc<Translator>>,
@@ -260,6 +263,17 @@ pub struct UnifiedMcpServer {
 }
 
 impl UnifiedMcpServer {
+    /// This server for one more session: the same index, language servers and
+    /// tools, with a rate-limit allowance of its own. The daemon serves each
+    /// client through one, so a busy client never slows another down.
+    #[must_use]
+    pub fn for_session(&self) -> Self {
+        Self {
+            limiter: Arc::new(RateLimiter::new()),
+            ..self.clone()
+        }
+    }
+
     /// Create a new unified server with core module only.
     pub fn new(core: Arc<CoreModule>) -> anyhow::Result<Self> {
         #[cfg(feature = "lsp")]
@@ -269,6 +283,7 @@ impl UnifiedMcpServer {
 
         Ok(Self {
             core,
+            limiter: Arc::new(RateLimiter::new()),
             #[cfg(feature = "lsp")]
             translator: None,
             #[cfg(feature = "lsp")]
@@ -303,6 +318,7 @@ impl UnifiedMcpServer {
 
         Ok(Self {
             core,
+            limiter: Arc::new(RateLimiter::new()),
             translator: Some(translator),
             lsp_manager,
             lsp_arch_manager,
@@ -422,6 +438,13 @@ impl UnifiedMcpServer {
         name: &str,
         args: Option<serde_json::Value>,
     ) -> Result<CallToolResult, McpError> {
+        if !self.limiter.check(name) {
+            let limited = ToolError::RateLimited {
+                tool_name: name.to_string(),
+                retry_after_secs: 1,
+            };
+            return Ok(failed(limited.to_string()));
+        }
         match self.core.handle_tool(name, args).await {
             Ok(ToolResult::Success(result)) => Ok(CallToolResult::success(vec![
                 ContentBlock::json(result).map_err(|e| {
@@ -747,6 +770,32 @@ pub async fn run_core_only_server() -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Each session has its own allowance: one that has used its burst up is
+    /// held back, and another session of the same server is not.
+    #[tokio::test]
+    async fn one_session_cannot_use_up_anothers_allowance() {
+        let dir = tempfile::tempdir().unwrap();
+        let state =
+            crate::server::DevscriptorServerState::with_db_path(dir.path().join("graph.db"))
+                .unwrap();
+        let server = UnifiedMcpServer::new(Arc::new(CoreModule::new(Arc::new(state)))).unwrap();
+        let (busy, other) = (server.for_session(), server.for_session());
+        let limited = |result: &CallToolResult| {
+            result.is_error == Some(true) && format!("{:?}", result.content).contains("Rate limit")
+        };
+        let mut held = false;
+        for _ in 0..40 {
+            let result = busy.handle_core_tool("get_statistics", None).await.unwrap();
+            held |= limited(&result);
+        }
+        assert!(held, "a session past its burst is held back");
+        let result = other
+            .handle_core_tool("get_statistics", None)
+            .await
+            .unwrap();
+        assert!(!limited(&result), "{result:?}");
+    }
 
     /// Every tool's schema takes no argument it does not name, and the
     /// server refuses one, naming it and what the tool takes; a call giving

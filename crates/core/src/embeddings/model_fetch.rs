@@ -46,23 +46,28 @@ const REQUIRED_FILES: &[&str] = &[
     "tokenizer_config.json",
 ];
 
-/// Files that improve fidelity but are not strictly required. `special_tokens_map.json`
-/// only re-marks tokens that this BERT-based tokenizer already defines in
-/// `tokenizer.json`, so the backend loads correctly whether or not it is present.
+/// Files of the upstream model directory that are fetched beside the
+/// required ones but not needed: `special_tokens_map.json` only re-marks
+/// tokens that this BERT-based tokenizer already defines in `tokenizer.json`,
+/// so the backend loads correctly whether or not it is present. One that
+/// cannot be fetched is left out; one that is fetched is verified as a
+/// required file is.
 #[cfg(feature = "model-download")]
 const OPTIONAL_FILES: &[&str] = &["special_tokens_map.json"];
 
-/// SHA-256 checksums (hex, 64 chars) for required files in
-/// `jinaai/jina-embeddings-v2-base-code`.
+/// SHA-256 checksums (hex, 64 chars) of every file downloaded from
+/// `jinaai/jina-embeddings-v2-base-code`, required and optional.
 ///
 /// After each file is downloaded its SHA-256 is computed and compared against
 /// the pinned value **before** the `.part` temp file is renamed into place.
 /// This is fail-closed: a mismatch aborts the download and removes the temp
 /// file, preventing a compromised mirror or MITM from installing an untrusted
-/// ONNX model into the inference runtime.
+/// ONNX model into the inference runtime, and a file with no valid pin here
+/// is not downloaded at all ([`pinned_sha256`]).
 ///
 /// The hashes are those of the files at [`PINNED_HF_REVISION`]:
-///   sha256sum onnx/model_quantized.onnx tokenizer.json config.json tokenizer_config.json
+///   sha256sum onnx/model_quantized.onnx tokenizer.json config.json \
+///       tokenizer_config.json special_tokens_map.json
 ///
 /// Setting `DEVSCRIPTOR_SKIP_MODEL_VERIFY=1` bypasses all checksum checks (e.g.
 /// for airgapped installs where files were provisioned out-of-band).
@@ -70,7 +75,7 @@ const OPTIONAL_FILES: &[&str] = &["special_tokens_map.json"];
 /// Hugging Face downloads name that immutable commit, never `resolve/main`, so
 /// a later push to the model repository cannot change what is downloaded.
 #[cfg(feature = "model-download")]
-const REQUIRED_FILE_SHA256: &[(&str, &str)] = &[
+const MODEL_FILE_SHA256: &[(&str, &str)] = &[
     (
         "onnx/model_quantized.onnx",
         "ed45870251c9f0cf656e78aab0d37a23489066df8a222bb1c8caf8a45f2cb16d",
@@ -87,7 +92,28 @@ const REQUIRED_FILE_SHA256: &[(&str, &str)] = &[
         "tokenizer_config.json",
         "f477aeb15ff9f78d3c1ddf2361d2b0b8b20cf55220f839f29a37f3a18efddd89",
     ),
+    (
+        "special_tokens_map.json",
+        "06e405a36dfe4b9604f484f6a1e619af1a7f7d09e34a8555eb0b77b66318067f",
+    ),
 ];
+
+/// The SHA-256 pinned for the model file `rel`, a 64-character hex string; an
+/// error for a file with none, which is never downloaded.
+#[cfg(feature = "model-download")]
+fn pinned_sha256(rel: &str) -> Result<&'static str> {
+    MODEL_FILE_SHA256
+        .iter()
+        .find(|(file, _)| *file == rel)
+        .map(|(_, hash)| *hash)
+        .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        .ok_or_else(|| {
+            Error::Embedding(format!(
+                "No SHA-256 is pinned for the model file {rel}: refusing to download \
+                 a file whose integrity cannot be confirmed."
+            ))
+        })
+}
 
 /// Local cache directory for the embedding model:
 /// `~/.cache/devscriptor/models/jina-embeddings-v2-base-code/`.
@@ -302,7 +328,15 @@ fn fetch_all_from(cache_dir: &Path, base: &str, layout: Layout, show_progress: b
         if is_non_empty(&dest) {
             continue;
         }
-        download_one(&client, &layout.url(base, rel), &dest, rel, show_progress)?;
+        let expected = pinned_sha256(rel)?;
+        download_one(
+            &client,
+            &layout.url(base, rel),
+            &dest,
+            rel,
+            expected,
+            show_progress,
+        )?;
     }
 
     for rel in OPTIONAL_FILES {
@@ -310,7 +344,15 @@ fn fetch_all_from(cache_dir: &Path, base: &str, layout: Layout, show_progress: b
         if is_non_empty(&dest) {
             continue;
         }
-        if let Err(e) = download_one(&client, &layout.url(base, rel), &dest, rel, show_progress) {
+        let expected = pinned_sha256(rel)?;
+        if let Err(e) = download_one(
+            &client,
+            &layout.url(base, rel),
+            &dest,
+            rel,
+            expected,
+            show_progress,
+        ) {
             tracing::warn!("Optional model file {rel} unavailable from {base}: {e}");
         }
     }
@@ -324,6 +366,7 @@ fn download_one(
     url: &str,
     dest: &Path,
     label: &str,
+    expected: &str,
     show_progress: bool,
 ) -> Result<()> {
     use sha2::{Digest, Sha256};
@@ -388,49 +431,23 @@ fn download_one(
         .map_err(|e| Error::Embedding(format!("Flush {}: {e}", tmp.display())))?;
     drop(file);
 
-    // N1 fix: verify SHA-256 before accepting the file.
+    // Verify the SHA-256 before accepting the file.
     let skip_verify = std::env::var("DEVSCRIPTOR_SKIP_MODEL_VERIFY")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
-
     if !skip_verify {
         let actual_hex = hex::encode(hasher.finalize());
-
-        // Look up the pinned hash for this relative path.
-        let pinned = REQUIRED_FILE_SHA256
-            .iter()
-            .find(|(rel, _)| *rel == label)
-            .map(|(_, h)| *h);
-
-        match pinned {
-            Some(expected) if !expected.is_empty() => {
-                if actual_hex != expected {
-                    // Remove the bad temp file before returning an error.
-                    let _ = std::fs::remove_file(&tmp);
-                    return Err(Error::Embedding(format!(
-                        "SHA-256 mismatch for {label}:\n  expected: {expected}\n  got:      {actual_hex}\n\
-                         Refusing to use a file whose integrity cannot be confirmed. \
-                         If you provisioned the model out-of-band, set \
-                         DEVSCRIPTOR_SKIP_MODEL_VERIFY=1."
-                    )));
-                }
-                tracing::debug!("{label}: SHA-256 OK ({actual_hex})");
-            }
-            Some(_) => {
-                // Hash entry exists but is empty — not yet pinned by the maintainer.
-                tracing::warn!(
-                    "Security: SHA-256 for {label} is not pinned in REQUIRED_FILE_SHA256. \
-                     The downloaded file has not been integrity-verified. \
-                     Please add the expected hash to crates/core/src/embeddings/model_fetch.rs."
-                );
-            }
-            None => {
-                // Optional file (not in REQUIRED_FILE_SHA256) — best-effort.
-                tracing::debug!(
-                    "{label}: no pinned SHA-256 (optional file), skipping verification"
-                );
-            }
+        if actual_hex != expected {
+            // Remove the bad temp file before returning an error.
+            let _ = std::fs::remove_file(&tmp);
+            return Err(Error::Embedding(format!(
+                "SHA-256 mismatch for {label}:\n  expected: {expected}\n  got:      {actual_hex}\n\
+                 Refusing to use a file whose integrity cannot be confirmed. \
+                 If you provisioned the model out-of-band, set \
+                 DEVSCRIPTOR_SKIP_MODEL_VERIFY=1."
+            )));
         }
+        tracing::debug!("{label}: SHA-256 OK ({actual_hex})");
     }
 
     std::fs::rename(&tmp, dest)
@@ -470,7 +487,7 @@ mod tests {
         ))
         .unwrap();
         assert!(script.contains(&format!("MODEL_REVISION=\"{PINNED_HF_REVISION}\"")));
-        for (file, hash) in REQUIRED_FILE_SHA256 {
+        for (file, hash) in MODEL_FILE_SHA256 {
             let call = format!("download_file \"$BASE_URL/{file}\"");
             let line = script
                 .lines()
@@ -521,27 +538,31 @@ mod tests {
         assert!(!onnx.join("model_quantized.onnx.part").exists());
     }
 
-    /// Every REQUIRED_FILE_SHA256 entry must be a 64-char lowercase hex
-    /// string. This test fails if any entry is empty or malformed, catching the
-    /// case where a maintainer adds a new required file but forgets the hash.
+    /// Every file Devscriptor downloads, required or optional, has a valid
+    /// pinned SHA-256, and only those files have one; a file without one, or
+    /// with a malformed one, is refused before any download.
     #[test]
     #[cfg(feature = "model-download")]
-    fn all_required_hashes_are_pinned() {
-        for (file, hash) in REQUIRED_FILE_SHA256 {
+    fn every_downloaded_file_has_a_pinned_hash() {
+        let downloaded: Vec<&str> = REQUIRED_FILES
+            .iter()
+            .chain(OPTIONAL_FILES)
+            .copied()
+            .collect();
+        for rel in &downloaded {
             assert!(
-                hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()),
-                "SHA-256 for {file:?} is not a 64-char hex string (got {:?}). \
-                 Run `sha256sum` on the file and fill in REQUIRED_FILE_SHA256.",
-                hash
+                pinned_sha256(rel).is_ok(),
+                "{rel:?} has no valid SHA-256 in MODEL_FILE_SHA256: run `sha256sum` on \
+                 the file at PINNED_HF_REVISION and add it"
             );
         }
-        // Every REQUIRED_FILE must have an entry.
-        for rel in REQUIRED_FILES {
+        for (file, _) in MODEL_FILE_SHA256 {
             assert!(
-                REQUIRED_FILE_SHA256.iter().any(|(f, _)| f == rel),
-                "Required file {rel:?} has no SHA-256 entry in REQUIRED_FILE_SHA256"
+                downloaded.contains(file),
+                "{file:?} is pinned but never downloaded"
             );
         }
+        assert!(pinned_sha256("model.safetensors").is_err());
     }
 
     /// The default HF base URL must contain the pinned commit SHA,

@@ -159,7 +159,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 time = { version = "0.3", features = ["serde", "serde-well-known", "formatting", "parsing"] }
-memmap2 = "0.9"
 parking_lot = "0.12"
 flate2 = "1"
 tar = "0.4"

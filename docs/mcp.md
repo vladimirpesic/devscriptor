@@ -584,11 +584,23 @@ entities. See [Context Graph](context-graph.md) for the full reference.
 | `validate_file_edit` | `file_path`\*, `original_content` | Validate a file edit with context |
 | `query_with_context` | `query`\*, `entity_type`, `file_path`, `force_broad_search` | Query with context awareness |
 
-`get_file_context`'s `context_lines` (default `10`) is the number of source lines
-included on either side of each entity's definition, returned in
+`get_file_context` lists the file's `imports` as the parser read them (`os`,
+`os as system`, `helper from util`, `* from module`; up to 100), its
+`dependencies` — the files whose entities its own call, inherit from, implement,
+use, reference or override — and its `related_files`, the files whose entities do
+so to its own (up to 50 each). Its `context_lines` (default `10`) is the number of
+source lines included on either side of each entity's definition, returned in
 `entity_contexts[]` as `{name, entity_type, line, snippet_start_line, snippet}`,
 each snippet line numbered. Snippets are clamped to the file's bounds and capped at
-50 entities. `describe_file` answers with the file's `total_lines` (absent when the
+50 entities.
+
+`describe_modification` parses both contents and matches their entities by
+identity — kind, enclosing scope and name, and parameters for overloads — naming a
+method `Class.method`. An entity is modified when its own text changed, so an
+unchanged function stays out of `entities_modified` whatever else changed, and a
+renamed one is removed under its old name and added under its new. For a language
+Devscriptor does not parse, it finds added and removed definitions by their
+`fn`/`def`/`function`/`class`/`struct`/`enum` lines and reports none modified. `describe_file` answers with the file's `total_lines` (absent when the
 file cannot be read), its entities, and with `include_content` (the default) the
 start of the file as a numbered `content_preview`.
 

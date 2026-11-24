@@ -238,7 +238,6 @@ fn test_pipeline_config(db_path: &Path) -> PipelineConfig {
         parser: ParserConfig {
             enable_cache: true,
             cache_size: 10,
-            mmap_threshold: 10 * 1024 * 1024,
             enable_cleaning: true,
             enable_validation: true,
             skip_invalid_entities: true,

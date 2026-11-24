@@ -515,8 +515,14 @@ pub struct EntitySummary {
 pub struct DescribeModificationResponse {
     pub file_path: String,
     pub changes_summary: String,
+    /// Entities the modified content has and the original lacks, by
+    /// identity (kind, enclosing scope, name): a method as `Class.method`.
     pub entities_added: Vec<String>,
+    /// Entities the original has and the modified content lacks.
     pub entities_removed: Vec<String>,
+    /// Entities in both whose own text changed; one whose text is the same in
+    /// both is not, whatever else changed. Empty for a language Devscriptor
+    /// does not parse, where only added and removed definitions are found.
     pub entities_modified: Vec<String>,
     pub lines_added: usize,
     pub lines_removed: usize,
@@ -526,8 +532,13 @@ pub struct DescribeModificationResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetFileContextResponse {
     pub file_path: String,
+    /// The file's imports as the parser read them, up to 100: `os`,
+    /// `os as system`, `helper from util`, `* from module`.
     pub imports: Vec<String>,
+    /// Files whose entities this file's own call, inherit from, implement,
+    /// use, reference or override, up to 50.
     pub dependencies: Vec<String>,
+    /// Files whose entities do so to this file's own, up to 50.
     pub related_files: Vec<String>,
     pub context_summary: String,
     /// Source excerpt around each entity, `context_lines` lines on either side

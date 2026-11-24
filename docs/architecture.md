@@ -131,7 +131,7 @@ crates/core/src/
 │   ├── symbol_table.rs         # Lightweight symbol index (SymbolTable): name resolution
 │   ├── standard_methods.rs     # Standard types' methods, for calls through values
 │   ├── prose.rs                # Markdown → documentation sections
-│   ├── mmap_parser.rs          # Memory-mapped file reading
+│   ├── python_comments.rs      # Long Python comment runs, left out of the parse
 │   ├── cleaning.rs             # Entity normalisation
 │   └── validation.rs           # Entity quality checks
 ├── processing/
@@ -140,6 +140,7 @@ crates/core/src/
     ├── gitignore_filter.rs     # .gitignore-aware path filter for stack detection (the scanner walks with the ignore crate)
     ├── memory_guard.rs         # Async-safe RAM pressure sentinel; free_ram_mb()
     ├── numbered.rs             # Line-numbered source excerpts
+    ├── paths.rs                # One spelling of a path for every caller (canonical)
     ├── performance.rs
     ├── security.rs             # Path sanitization, file hash
     ├── type_helpers.rs

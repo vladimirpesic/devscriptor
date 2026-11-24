@@ -90,7 +90,8 @@ cargo test -p devscriptor-lsp --lib -- --ignored pinned_checksums_match_the_publ
 cargo test -p devscriptor-lsp --lib -- --ignored pinned_license_files_match_the_publishers
 ```
 
-**The VS Code extension**:
+**The VS Code extension**, with Node.js 22 or later, which its build and test tools
+need (CI uses Node.js 24):
 
 ```bash
 cd vscode-extension
@@ -103,8 +104,8 @@ npm test               # every test, in a VS Code it downloads (needs a display;
 
 CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
 rustfmt; clippy and the tests on each supported platform — Linux x64 and ARM64,
-macOS on Apple Silicon and Intel, Windows x64; the extension's lint and unit tests;
-and `cargo audit`. A failed clippy or test step is reported as annotations: each
+macOS on Apple Silicon and Intel, Windows x64; the extension's `npm audit`, lint and
+unit tests; and `cargo audit`. A failed clippy or test step is reported as annotations: each
 compiler error, each failed test's output and the failed targets
 (`.github/scripts/annotate-failures.py`). The nightly workflow
 (`.github/workflows/nightly.yml`) runs the slow tests with the real model and every
@@ -119,8 +120,8 @@ needs glibc 2.17 at most on Linux and macOS 11 on macOS, and it links no C++
 runtime or OpenSSL, nor on Windows the Visual C++ runtime. On Windows the binary
 also reserves the 8 MiB main-thread stack that Linux and macOS give a program
 (`crates/cli/build.rs`); Windows' own 1 MiB is too little for a debug build. Pushing a tag
-`v<version>` builds the archives and publishes them, with their checksums and
-`latest.json`, as a GitHub release; the tag must match the version in
+`v<version>` builds the archives and publishes them, with their checksums, a build
+provenance attestation of each and `latest.json`, as a GitHub release; the tag must match the version in
 `Cargo.toml`, the release's notes are `.github/release-notes/v<version>.md`, which
 the tag's commit must hold, and the release waits for a check that the mirror releases the
 commit pins are published, whole (`.github/scripts/check-mirrors.py`: every LSP

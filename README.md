@@ -109,7 +109,8 @@ cargo test --workspace
 ```
 
 See [Building](docs/building.md) for the slow and ignored test suites and the
-extension's tests.
+extension's tests, [CONTRIBUTING.md](CONTRIBUTING.md) for what a pull request
+passes, and [SECURITY.md](SECURITY.md) for reporting a vulnerability privately.
 
 ## License
 
