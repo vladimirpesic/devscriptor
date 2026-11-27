@@ -256,6 +256,7 @@ fn open_doc(last_used: u64) -> OpenDocument {
         hash: 0,
         read_at: std::time::SystemTime::UNIX_EPOCH,
         last_used,
+        saved: None,
     }
 }
 

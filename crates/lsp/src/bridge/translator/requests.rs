@@ -193,7 +193,14 @@ impl Translator {
     /// Handle diagnostics.
     ///
     /// A server that offers pull diagnostics (`diagnosticProvider`) is asked
-    /// with `textDocument/diagnostic`. One that does not only pushes them —
+    /// with `textDocument/diagnostic`. When it takes saves, it is told the
+    /// file is saved first, and what it pushes is added to its answer: a check
+    /// may run only on a save, and report only by push — rust-analyzer's
+    /// answer holds its own analysis, while the errors `cargo check` finds,
+    /// type errors among them, it pushes. The check is waited for, at most
+    /// `wait_ms` (30 s by default); one still running then leaves its
+    /// findings out but those it pushed since the save, and the answer says
+    /// it is `checking`. One that does not offer pull diagnostics only pushes them —
     /// typescript-language-server, clangd, gopls, jdtls — so the answer is what
     /// it pushes for the file: after opening or refreshing it, the pushes that
     /// follow, waited for at most `wait_ms`; otherwise the last one. Asked with
@@ -219,18 +226,55 @@ impl Translator {
         let uri = path_to_uri(file_path)?;
 
         let cap = params.wait_ms.map(std::time::Duration::from_millis);
-        let (diagnostics, stale) = if self
+        let (diagnostics, stale, checking) = if self
             .server_supports(&language_id, "diagnosticProvider")
             .await
         {
+            let saved = self.save_document(&client, &language_id, file_path).await?;
+            let checked = match saved {
+                Some(saved) => {
+                    client
+                        .await_check(saved.checks, cap.unwrap_or(CHECK_WAIT))
+                        .await
+                }
+                None => true,
+            };
             match Self::pull_diagnostics(&client, &uri).await {
                 Err(LspError::LspServerError { code, .. }) if code == LSP_METHOD_NOT_FOUND => {
-                    Self::pushed_diagnostics(&client, &uri, mark, refreshed, cap).await
+                    let (pushed, stale) =
+                        Self::pushed_diagnostics(&client, &uri, mark, refreshed, cap).await;
+                    (pushed, stale, false)
                 }
-                pulled => (pulled?, false),
+                pulled => {
+                    let mut diagnostics = pulled?;
+                    let mut checking = false;
+                    if let Some(saved) = saved {
+                        // The check may have ended while the server answered.
+                        let checked = checked
+                            || client
+                                .await_check(saved.checks, std::time::Duration::ZERO)
+                                .await;
+                        checking = !checked;
+                        // While the check runs, a push before the save is of
+                        // an older text.
+                        let pushed = if checked {
+                            client.pushed_diagnostics(uri.as_str())
+                        } else {
+                            client.pushed_since(uri.as_str(), saved.mark)
+                        };
+                        for diagnostic in pushed.unwrap_or_default() {
+                            if !diagnostics.contains(&diagnostic) {
+                                diagnostics.push(diagnostic);
+                            }
+                        }
+                    }
+                    (diagnostics, false, checking)
+                }
             }
         } else {
-            Self::pushed_diagnostics(&client, &uri, mark, refreshed, cap).await
+            let (pushed, stale) =
+                Self::pushed_diagnostics(&client, &uri, mark, refreshed, cap).await;
+            (pushed, stale, false)
         };
 
         let least = params.severity.unwrap_or(DiagnosticSeverity::Hint);
@@ -264,7 +308,11 @@ impl Translator {
             })
             .collect();
 
-        Ok(DiagnosticsResult { diagnostics, stale })
+        Ok(DiagnosticsResult {
+            diagnostics,
+            stale,
+            checking,
+        })
     }
 
     /// Ask `client` for `uri`'s diagnostics with `textDocument/diagnostic`.

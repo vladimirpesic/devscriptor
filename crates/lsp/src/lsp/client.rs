@@ -135,32 +135,58 @@ const PUSH_POLL: StdDuration = StdDuration::from_millis(25);
 /// not implement `$/progress` and treat it as ready.
 const READY_NO_PROGRESS_GRACE: StdDuration = StdDuration::from_secs(2);
 
+/// How soon after a save the server's check of it begins: work that begins
+/// later is not the save's.
+const CHECK_START_GRACE: StdDuration = StdDuration::from_secs(1);
+
 /// Tracks a server's background work, reported via `$/progress`.
 ///
 /// Semantic requests (`hover`, `definition`, …) answer with *empty results* —
 /// not errors — while a server is still indexing. An agent cannot tell that
 /// apart from "no such symbol", so requests wait for the work to end.
-#[derive(Debug)]
+///
+/// Work that begins within [`CHECK_START_GRACE`] of a save the client told
+/// the server of is the server's check of the saved files: rust-analyzer runs
+/// `cargo check` (or clippy) on a save and reports it as progress. A check
+/// does not change what the server answers, and can take minutes, so
+/// requests do not wait for it; `get_diagnostics` waits for the check its
+/// save started ([`LspClient::await_check`]).
+#[derive(Debug, Default)]
 struct ProgressState {
-    /// Number of `$/progress` tokens currently in `begin`..`end`.
-    active: std::sync::atomic::AtomicUsize,
+    inner: parking_lot::Mutex<Progress>,
+}
+
+#[derive(Debug, Default)]
+struct Progress {
     /// Whether any `$/progress` has ever been observed.
-    seen: std::sync::atomic::AtomicBool,
-    /// When the last `$/progress` arrived.
-    last: Mutex<Option<Instant>>,
+    seen: bool,
+    /// The tokens in `begin`..`end`, each with whether its work is a check.
+    running: HashMap<String, bool>,
+    /// When the last `$/progress` of work other than a check arrived.
+    last_work: Option<Instant>,
+    /// When the last `$/progress` of a check arrived.
+    last_check: Option<Instant>,
+    /// How many checks have begun.
+    checks_begun: u64,
+    /// When the client last told the server of a save.
+    saved_at: Option<Instant>,
+}
+
+impl Progress {
+    /// Whether work other than a check is running.
+    fn working(&self) -> bool {
+        self.running.values().any(|check| !check)
+    }
+
+    /// Whether a check is running.
+    fn checking(&self) -> bool {
+        self.running.values().any(|check| *check)
+    }
 }
 
 impl ProgressState {
-    fn new() -> Self {
-        Self {
-            active: std::sync::atomic::AtomicUsize::new(0),
-            seen: std::sync::atomic::AtomicBool::new(false),
-            last: Mutex::new(None),
-        }
-    }
-
     /// Fold a `$/progress` notification into the state.
-    async fn observe(&self, params: Option<&Value>) {
+    fn observe(&self, params: Option<&Value>) {
         let Some(kind) = params
             .and_then(|p| p.get("value"))
             .and_then(|v| v.get("kind"))
@@ -168,24 +194,47 @@ impl ProgressState {
         else {
             return;
         };
+        // A token is a string or an integer.
+        let token = params
+            .and_then(|p| p.get("token"))
+            .map(|token| {
+                token
+                    .as_str()
+                    .map_or_else(|| token.to_string(), str::to_string)
+            })
+            .unwrap_or_default();
 
-        self.seen.store(true, Ordering::SeqCst);
-        *self.last.lock().await = Some(Instant::now());
-
-        match kind {
+        let mut progress = self.inner.lock();
+        progress.seen = true;
+        let check = match kind {
             "begin" => {
-                self.active.fetch_add(1, Ordering::SeqCst);
+                let check = progress
+                    .saved_at
+                    .is_some_and(|saved| saved.elapsed() <= CHECK_START_GRACE);
+                if check {
+                    progress.checks_begun += 1;
+                }
+                progress.running.insert(token, check);
+                check
             }
-            "end" => {
-                // `try_update` floors at zero: a stray `end` must not underflow.
-                let _ = self
-                    .active
-                    .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                        Some(n.saturating_sub(1))
-                    });
-            }
-            _ => {}
+            // A stray `end` changes nothing.
+            "end" => progress.running.remove(&token).unwrap_or(false),
+            _ => progress.running.get(&token).copied().unwrap_or(false),
+        };
+        let now = Some(Instant::now());
+        if check {
+            progress.last_check = now;
+        } else {
+            progress.last_work = now;
         }
+    }
+
+    /// Note that the client is telling the server of a save: how many checks
+    /// had begun before it.
+    fn saving(&self) -> u64 {
+        let mut progress = self.inner.lock();
+        progress.saved_at = Some(Instant::now());
+        progress.checks_begun
     }
 }
 
@@ -528,7 +577,7 @@ impl LspClient {
         // Drain server-initiated messages, so a full channel never blocks the
         // reader: `$/progress` goes into `progress`, pushed diagnostics into
         // `pushed`, and the rest is discarded.
-        let progress = Arc::new(ProgressState::new());
+        let progress = Arc::new(ProgressState::default());
         let progress_task = Arc::clone(&progress);
         let pushed = Arc::new(PushedDiagnostics::default());
         let pushed_task = Arc::clone(&pushed);
@@ -539,7 +588,7 @@ impl LspClient {
             while let Some(message) = notification_rx.recv().await {
                 match message {
                     InboundMessage::Notification(n) if n.method == "$/progress" => {
-                        progress_task.observe(n.params.as_ref()).await;
+                        progress_task.observe(n.params.as_ref());
                     }
                     InboundMessage::Notification(n)
                         if n.method == "textDocument/publishDiagnostics" =>
@@ -643,7 +692,8 @@ impl LspClient {
         }
     }
 
-    /// Wait until the server has finished its background work.
+    /// Wait until the server has finished its background work, checks aside
+    /// ([`ProgressState`]).
     ///
     /// Returns as soon as no `$/progress` token is active and the server has been
     /// quiet for `READY_SETTLE`. A server that never reports progress is treated
@@ -665,7 +715,14 @@ impl LspClient {
                 return;
             }
 
-            let seen = self.progress.seen.load(Ordering::SeqCst);
+            let (seen, working, quiet_for) = {
+                let progress = self.progress.inner.lock();
+                (
+                    progress.seen,
+                    progress.working(),
+                    progress.last_work.map(|t| t.elapsed()),
+                )
+            };
             if !seen {
                 if started.elapsed() >= READY_NO_PROGRESS_GRACE {
                     return; // Server does not report progress.
@@ -673,20 +730,52 @@ impl LspClient {
                 continue;
             }
 
-            if self.progress.active.load(Ordering::SeqCst) > 0 {
+            if working {
                 continue;
             }
 
-            let quiet_for = self
-                .progress
-                .last
-                .lock()
-                .await
-                .map(|t| t.elapsed())
-                .unwrap_or(StdDuration::ZERO);
-            if quiet_for >= READY_SETTLE {
+            if quiet_for.is_none_or(|quiet| quiet >= READY_SETTLE) {
                 return;
             }
+        }
+    }
+
+    /// Note that the client is about to tell the server of a save: how many of
+    /// its checks had begun before, for [`Self::await_check`].
+    #[must_use]
+    pub fn saving(&self) -> u64 {
+        self.progress.saving()
+    }
+
+    /// Wait for the check a save started, the one after `checks_before` (from
+    /// [`Self::saving`]), to end, at most `cap`. Returns whether it ended, or
+    /// none began within [`CHECK_START_GRACE`] of the save; a check of a later
+    /// save counts as the save's.
+    pub async fn await_check(&self, checks_before: u64, cap: StdDuration) -> bool {
+        let _in_use = self.in_use();
+        let deadline = Instant::now() + cap;
+        loop {
+            let (started, checking, quiet, saved_at) = {
+                let progress = self.progress.inner.lock();
+                (
+                    progress.checks_begun > checks_before,
+                    progress.checking(),
+                    progress
+                        .last_check
+                        .is_none_or(|last| last.elapsed() >= READY_SETTLE),
+                    progress.saved_at,
+                )
+            };
+            if started && !checking && quiet {
+                return true;
+            }
+            if !started && saved_at.is_none_or(|saved| saved.elapsed() > CHECK_START_GRACE) {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(PUSH_POLL).await;
         }
     }
 

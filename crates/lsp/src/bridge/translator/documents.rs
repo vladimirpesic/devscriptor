@@ -463,6 +463,7 @@ impl Translator {
                     hash,
                     read_at,
                     last_used: tick.unwrap_or(doc.last_used),
+                    saved: None,
                 };
             }
             None => {
@@ -489,6 +490,7 @@ impl Translator {
                         hash,
                         read_at,
                         last_used,
+                        saved: None,
                     },
                 );
                 let stale = documents_to_close(
@@ -513,6 +515,78 @@ impl Translator {
         }
 
         Ok(true)
+    }
+
+    /// Tell `client`'s server that the open document of `file_path` is saved
+    /// — it is: what Devscriptor sends is what is on disk — unless the server
+    /// takes no saves, or was told already for the text it holds. A server may
+    /// check a file only once it is saved: rust-analyzer runs `cargo check`
+    /// (or clippy) then, and pushes what it finds. Returns the save of the
+    /// text the server holds; `None` when it takes no saves, or the document
+    /// is not open or changed on disk since it was sent.
+    pub(super) async fn save_document(
+        &self,
+        client: &LspClient,
+        language_id: &str,
+        file_path: &Path,
+    ) -> Result<Option<Saved>> {
+        let Some(include_text) = self.takes_saves(language_id).await else {
+            return Ok(None);
+        };
+        let uri = path_to_uri(file_path)?;
+        let key = uri_to_path(&uri);
+        let mut open = self.open_documents.write().await;
+        let Some(doc) = open.get_mut(&key) else {
+            return Ok(None);
+        };
+        if doc.saved.is_some() {
+            return Ok(doc.saved);
+        }
+        let text = if include_text {
+            match tokio::fs::read_to_string(file_path).await {
+                Ok(text) if text_hash(&text) == doc.hash => Some(text),
+                _ => return Ok(None),
+            }
+        } else {
+            None
+        };
+        let saved = Saved {
+            mark: client.diagnostics_mark(),
+            checks: client.saving(),
+        };
+        let params = lsp_types::DidSaveTextDocumentParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri },
+            text,
+        };
+        client
+            .notify("textDocument/didSave", params)
+            .await
+            .map_err(|e| LspError::Io(format!("didSave failed: {e}")))?;
+        doc.saved = Some(saved);
+        Ok(Some(saved))
+    }
+
+    /// Whether the running `language_id` server takes `didSave`, and if so,
+    /// whether with the saved text: its `textDocumentSync.save`, `true` or
+    /// `{ "includeText": … }`.
+    async fn takes_saves(&self, language_id: &str) -> Option<bool> {
+        let servers = self.servers.read().await;
+        let save = servers
+            .get(language_id)?
+            .capabilities()
+            .get("textDocumentSync")?
+            .get("save")?
+            .clone();
+        match save {
+            serde_json::Value::Bool(true) => Some(false),
+            serde_json::Value::Object(options) => Some(
+                options
+                    .get("includeText")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+            ),
+            _ => None,
+        }
     }
 
     /// Get language ID for a file path.

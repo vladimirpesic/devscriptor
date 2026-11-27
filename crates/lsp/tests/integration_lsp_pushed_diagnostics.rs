@@ -5,6 +5,10 @@
 //! `textDocument/publishDiagnostics` after a document is opened or changed.
 //! Pulled from those servers, every `get_diagnostics` call would fail with
 //! `-32601 Unhandled method`; it reports what they pushed instead.
+//!
+//! rust-analyzer answers pulls with its own analysis, and pushes what the
+//! check a save starts finds (`cargo check`): it is told the file is saved,
+//! the check waited for, and its pushes reported with the pulled ones.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -27,9 +31,13 @@ use tokio::process::Command;
 /// It pushes nothing for a change to a document, except in mode `slow-change`,
 /// where it pushes `changed` 2.6 seconds after one. Modes `once` and `late`
 /// push only: `once` for a document's first opening alone, `late` three
-/// seconds after it.
+/// seconds after it. Modes `check` and `slow-check` answer pulls and take
+/// saves, as rust-analyzer does: they push nothing for an opened or changed
+/// document, but on a save run a check, reported as progress, that takes 0.8
+/// or 3 seconds and pushes `checked` for a document whose text holds `bad`,
+/// and an empty list for one it pushed `checked` for before.
 const FAKE_SERVER: &str = r#"
-import json, sys, time, urllib.parse
+import json, sys, threading, time, urllib.parse
 
 def read_message():
     length = None
@@ -46,11 +54,14 @@ def read_message():
         return None
     return json.loads(sys.stdin.buffer.read(length))
 
+sending = threading.Lock()
+
 def send(obj):
     body = json.dumps(obj).encode()
-    sys.stdout.buffer.write(b"Content-Length: %d\r\n\r\n" % len(body))
-    sys.stdout.buffer.write(body)
-    sys.stdout.buffer.flush()
+    with sending:
+        sys.stdout.buffer.write(b"Content-Length: %d\r\n\r\n" % len(body))
+        sys.stdout.buffer.write(body)
+        sys.stdout.buffer.flush()
 
 def respell(uri):
     path = urllib.parse.unquote(uri[len("file://"):])
@@ -62,11 +73,29 @@ def diagnostic(line, message, severity=1):
             "severity": severity, "source": "fake", "message": message}
 
 mode = sys.argv[1]
-capabilities = {"textDocumentSync": 1}
+checks = mode in ("check", "slow-check")
+capabilities = {"textDocumentSync": {"openClose": True, "change": 1, "save": {}} if checks else 1}
 opened = set()
+texts = {}
+flagged = set()
 if mode not in ("push", "once", "late", "slow-change"):
     capabilities["diagnosticProvider"] = {"interFileDependencies": False,
                                           "workspaceDiagnostics": False}
+
+def check(uri):
+    send({"jsonrpc": "2.0", "method": "$/progress",
+          "params": {"token": "check", "value": {"kind": "begin", "title": "check"}}})
+    time.sleep(3 if mode == "slow-check" else 0.8)
+    if "bad" in texts.get(uri, ""):
+        flagged.add(uri)
+        send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+              "params": {"uri": respell(uri), "diagnostics": [diagnostic(3, "checked")]}})
+    elif uri in flagged:
+        flagged.discard(uri)
+        send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+              "params": {"uri": respell(uri), "diagnostics": []}})
+    send({"jsonrpc": "2.0", "method": "$/progress",
+          "params": {"token": "check", "value": {"kind": "end"}}})
 
 while True:
     msg = read_message()
@@ -75,6 +104,12 @@ while True:
     method = msg.get("method")
     if method == "initialize":
         send({"jsonrpc": "2.0", "id": msg["id"], "result": {"capabilities": capabilities}})
+    elif checks and method in ("textDocument/didOpen", "textDocument/didChange"):
+        document = msg["params"]["textDocument"]
+        texts[document["uri"]] = (document.get("text")
+                                  or msg["params"]["contentChanges"][-1]["text"])
+    elif checks and method == "textDocument/didSave":
+        threading.Thread(target=check, args=(msg["params"]["textDocument"]["uri"],)).start()
     elif method == "textDocument/didOpen":
         uri = respell(msg["params"]["textDocument"]["uri"])
         if mode == "once" and uri in opened:
@@ -362,4 +397,165 @@ async fn a_file_changed_on_disk_is_diagnosed_as_it_is_now() {
     let messages: Vec<&str> = now.diagnostics.iter().map(|d| d.message.as_str()).collect();
     assert_eq!(messages, ["changed"]);
     translator.shutdown().await;
+}
+
+fn ask(scratch: &Scratch, wait_ms: Option<u64>) -> DiagnosticsParams {
+    DiagnosticsParams {
+        file_path: scratch.document.display().to_string(),
+        severity: None,
+        wait_ms,
+    }
+}
+
+fn names(result: &devscriptor_lsp::mcp::tools::DiagnosticsResult) -> Vec<&str> {
+    result
+        .diagnostics
+        .iter()
+        .map(|d| d.message.as_str())
+        .collect()
+}
+
+/// A server that answers pulls and checks a file on its save is told the
+/// file is saved, once for each text: its check is waited for, and what it
+/// pushes is reported with what it answers — until a change it finds clean,
+/// for which it pushes an empty list, or nothing at all.
+#[tokio::test]
+async fn the_check_a_save_starts_is_waited_for_and_reported() {
+    let (scratch, translator) = translator("check");
+    std::fs::write(&scratch.document, "bad\n").unwrap();
+    let first = translator
+        .handle_diagnostics(ask(&scratch, None))
+        .await
+        .unwrap();
+    assert_eq!(names(&first), ["pulled", "checked"]);
+    assert!(!first.stale && !first.checking);
+
+    // The text was saved and checked: asked again, the server answers at once.
+    let started = Instant::now();
+    let again = translator
+        .handle_diagnostics(ask(&scratch, None))
+        .await
+        .unwrap();
+    assert_eq!(names(&again), ["pulled", "checked"]);
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "took {:?}",
+        started.elapsed()
+    );
+
+    std::fs::write(&scratch.document, "good\n").unwrap();
+    let fixed = translator
+        .handle_diagnostics(ask(&scratch, None))
+        .await
+        .unwrap();
+    assert_eq!(names(&fixed), ["pulled"]);
+
+    // A clean text checked clean pushes nothing: the end of the check answers.
+    std::fs::write(&scratch.document, "fine\n").unwrap();
+    let started = Instant::now();
+    let clean = translator
+        .handle_diagnostics(ask(&scratch, None))
+        .await
+        .unwrap();
+    assert_eq!(names(&clean), ["pulled"]);
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "took {:?}",
+        started.elapsed()
+    );
+    translator.shutdown().await;
+}
+
+/// A check still running when `wait_ms` ends leaves its findings out, and
+/// the answer says so; asked again, the server's answer waits for its end.
+#[tokio::test]
+async fn a_check_still_running_is_said_to_be() {
+    let (scratch, translator) = translator("slow-check");
+    std::fs::write(&scratch.document, "bad\n").unwrap();
+    // The check takes 3 seconds; the answer comes before it ends.
+    let early = translator
+        .handle_diagnostics(ask(&scratch, Some(300)))
+        .await
+        .unwrap();
+    assert_eq!(names(&early), ["pulled"]);
+    assert!(early.checking && !early.stale);
+    assert_eq!(serde_json::to_value(&early).unwrap()["checking"], true);
+
+    let later = translator
+        .handle_diagnostics(ask(&scratch, None))
+        .await
+        .unwrap();
+    assert_eq!(names(&later), ["pulled", "checked"]);
+    assert!(!later.checking);
+    assert!(
+        serde_json::to_value(&later)
+            .unwrap()
+            .get("checking")
+            .is_none()
+    );
+    translator.shutdown().await;
+}
+
+/// The work a save starts is a check: the client's readiness does not wait
+/// for it, [`LspClient::await_check`] does.
+#[tokio::test]
+async fn readiness_does_not_wait_for_a_check() {
+    let scratch = scratch();
+    let mut child = Command::new("python3")
+        .arg(&scratch.script)
+        .arg("slow-check")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn fake lsp server");
+    let transport = LspTransport::new(child.stdin.take().unwrap(), child.stdout.take().unwrap());
+    let client = LspClient::from_transport(server_config(&scratch.script, "slow-check"), transport);
+    let uri = path_to_uri(&scratch.document).unwrap();
+    client
+        .notify(
+            "textDocument/didOpen",
+            serde_json::json!({"textDocument": {
+                "uri": uri.as_str(), "languageId": "fake", "version": 1, "text": "bad\n"
+            }}),
+        )
+        .await
+        .unwrap();
+    let before = client.saving();
+    client
+        .notify(
+            "textDocument/didSave",
+            serde_json::json!({"textDocument": {"uri": uri.as_str()}}),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let started = Instant::now();
+    client.wait_until_ready().await;
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "took {:?}",
+        started.elapsed()
+    );
+    assert!(!client.await_check(before, Duration::from_millis(200)).await);
+    assert!(client.await_check(before, Duration::from_secs(10)).await);
+    assert_eq!(
+        client
+            .pushed_diagnostics(uri.as_str())
+            .as_deref()
+            .map(messages),
+        Some(vec!["checked"])
+    );
+
+    // A save that starts no check is not waited for past the grace.
+    let before = client.saving();
+    let started = Instant::now();
+    assert!(client.await_check(before, Duration::from_secs(10)).await);
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "took {:?}",
+        started.elapsed()
+    );
+    let _ = child.kill().await;
 }

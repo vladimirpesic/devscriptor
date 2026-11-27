@@ -163,9 +163,10 @@ pub struct DiagnosticsParams {
     #[serde(default)]
     pub severity: Option<DiagnosticSeverity>,
     /// How long, at most, to wait for a server that pushes its diagnostics
-    /// rather than answering for them; `None` waits as long as it takes such
-    /// a server to push for a document (10 s the first time, 3 s after a
-    /// change, and until its pushes settle).
+    /// rather than answering for them, or for the check a save of the file
+    /// started; `None` waits as long as it takes such a server to push for a
+    /// document (10 s the first time, 3 s after a change, and until its
+    /// pushes settle), and 30 s for a check.
     #[serde(default)]
     pub wait_ms: Option<u64>,
 }
@@ -180,6 +181,11 @@ pub struct DiagnosticsResult {
     /// a non-empty list, for an earlier text.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stale: bool,
+    /// Whether the server was still checking the saved file when the wait
+    /// ended: what its check finds is missing, but for what it reported
+    /// already.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub checking: bool,
 }
 
 /// Parameters for document symbols tool.

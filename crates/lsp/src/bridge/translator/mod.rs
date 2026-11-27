@@ -143,6 +143,19 @@ struct OpenDocument {
     read_at: std::time::SystemTime,
     /// When a request last used it, as a tick of [`Translator::ticks`].
     last_used: u64,
+    /// The save the server was told of for the text it holds, if it was.
+    saved: Option<Saved>,
+}
+
+/// A save of a document the server was told of
+/// ([`Translator::save_document`]).
+#[derive(Debug, Clone, Copy)]
+struct Saved {
+    /// The client's diagnostics mark before it: the server's pushes after it
+    /// are of the saved text.
+    mark: u64,
+    /// The server's checks begun before it, for [`LspClient::await_check`].
+    checks: u64,
 }
 
 /// A file's modification time and size.
@@ -235,6 +248,11 @@ const PUSH_CHANGE_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 /// How long a document goes without a push before its diagnostics count as
 /// complete.
 const PUSH_SETTLE: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// How long `get_diagnostics` waits, unless told otherwise, for the check a
+/// save of the file started: rust-analyzer's `cargo check` takes seconds on
+/// a small crate, and longer on a large one.
+const CHECK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl Translator {
     /// Create a new translator.

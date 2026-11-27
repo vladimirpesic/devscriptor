@@ -153,7 +153,9 @@ pub fn tool_list() -> Vec<Tool> {
             "get_diagnostics",
             "Get diagnostics (errors/warnings) for a file, as it is on disk; `severity` \
              leaves out the less severe, `wait_ms` bounds the wait for a server that pushes \
-             them, and `stale: true` says the answer may describe an older text of the file",
+             them or checks the file, `stale: true` says the answer may describe an older \
+             text of the file, and `checking: true` that the server's check of it was still \
+             running, its findings missing",
             create_schema(json!({
                 "type": "object",
                 "properties": {
@@ -166,7 +168,7 @@ pub fn tool_list() -> Vec<Tool> {
                     "wait_ms": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "The longest to wait, in milliseconds, for a server that pushes its diagnostics (10 s the first time, 3 s after a change, by default)"
+                        "description": "The longest to wait, in milliseconds, for a server that pushes its diagnostics (10 s the first time, 3 s after a change, by default), or for the check a save of the file starts, such as rust-analyzer's `cargo check` (30 s by default)"
                     }
                 },
                 "required": ["file_path"]

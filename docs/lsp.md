@@ -313,7 +313,8 @@ A server started later reads the files as they are.
   (build scripts, proc macros, `cargo check`) in `target/rust-analyzer` instead of
   the project's own `target/`, and never holds the project's build lock: a
   `cargo build` run while it indexes does not wait. The cost is a second set of
-  build artifacts in that directory. Its cargo resolves each workspace into
+  build artifacts in that directory. Its check of a saved file, `cargo check`,
+  runs there too when `get_diagnostics` tells it a file is saved. Its cargo resolves each workspace into
   `target/rust-analyzer/Cargo.lock` (`CARGO_RESOLVER_LOCKFILE_PATH`, Rust 1.97 or
   newer), a copy of the project's `Cargo.lock` where there is one, so a workspace
   without one gets none and an outdated one is not rewritten. A lock file the

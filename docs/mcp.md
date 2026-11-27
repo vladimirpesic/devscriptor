@@ -713,17 +713,28 @@ is opened or changed: for those it reports what they push, waiting for the
 pushes to settle, so the first call on a file takes a few seconds (it waits up
 to 10 s for a file's first push, and 3 s after a change).
 
+A server that offers pull diagnostics and takes saves is told the file is
+saved — once for each text of it — and what it pushes is reported with what it
+answers: rust-analyzer answers with its own analysis, and pushes what the check
+a save starts finds (`cargo check`), type errors among them. The call waits for
+that check, which rust-analyzer reports as progress, up to 30 s; other requests
+do not.
+
 - **`severity`** — `error`, `warning`, `information` or `hint`: the least severe
   diagnostics reported. `error` reports errors alone; a diagnostic the server
   gives no severity counts as an error. Left out, all are reported.
-- **`wait_ms`** — the longest to wait for a server's pushes, in milliseconds,
-  their settling included; what was pushed for the file's current text by then
-  answers. The server's start and its readiness are waited for apart.
+- **`wait_ms`** — the longest to wait for a server's pushes, or for the check a
+  save started, in milliseconds, the pushes' settling included; what was pushed
+  for the file's current text by then answers. The server's start and its
+  readiness are waited for apart.
 - **`stale: true`** in the answer says it may not describe the file as it is
   now: no push for its current text came in time, and the server had pushed none
   for the file, or a non-empty list for an earlier text. A last push that was
   empty still answers, without `stale`: a server need not repeat an empty
   list.
+- **`checking: true`** says the server's check of the saved file was still
+  running when the wait ended: what it finds is missing from the answer, but
+  for what it pushed already. No errors then does not mean there are none.
 
 ### Symbols (4)
 
