@@ -94,7 +94,7 @@ jobs:
           test "$("$bin" --version)" = "devscriptor ${{ steps.version.outputs.version }}"
           started=$("$bin" --verbose mcp --no-daemon --no-watch </dev/null 2>&1 >/dev/null | grep -m1 "Starting Unified MCP Server" || true)
           echo "$started"
-          [[ "$started" == *"(75 tools)"* ]] || { echo "::error::The MCP server did not start with 75 tools"; exit 1; }
+          [[ "$started" == *"(76 tools)"* ]] || { echo "::error::The MCP server did not start with 76 tools"; exit 1; }
           sysroot=$(rustc --print sysroot)
           if [ "$RUNNER_OS" = Windows ]; then sysroot=$(cygpath -u "$sysroot"); fi
           objdump=$sysroot/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-objdump
