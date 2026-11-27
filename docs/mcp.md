@@ -566,8 +566,9 @@ is certain.
 changes against `HEAD`, untracked files included; with `base` a branch, a tag or
 a commit, the working tree against it; with a range `a..b`, the changes between
 two commits. `path` is a directory in the repository, the workspace's project
-by default. Git runs with its fsmonitor off and without external diff or
-textconv programs, so a repository's config runs nothing.
+by default. The index the server reads, when it is kept in the repository, is
+no part of the change. Git runs with its fsmonitor off and without external
+diff or textconv programs, so a repository's config runs nothing.
 
 - **`changed`** — the entities the change touches, each with the `lines` of it
   touched (`12-14, 20`). A changed line belongs to the innermost entity holding

@@ -441,9 +441,20 @@ impl CoreModule {
         let top = change_impact::repository_top(&directory)
             .await
             .map_err(|e| ToolError::InvalidParams(e.to_string()))?;
-        let changes = change_impact::changed_files(&top, base)
+        let mut changes = change_impact::changed_files(&top, base)
             .await
             .map_err(|e| ToolError::InvalidParams(e.to_string()))?;
+        // The index this server reads, when it is kept in the repository,
+        // changes with every scan; it is no part of the change.
+        let index: Vec<std::path::PathBuf> = self
+            .state
+            .index_files()
+            .iter()
+            .filter_map(|file| dunce::canonicalize(file).ok())
+            .collect();
+        changes.retain(|change| {
+            !dunce::canonicalize(top.join(&change.path)).is_ok_and(|file| index.contains(&file))
+        });
         let impact =
             change_impact::impact(self.state.database().as_ref(), &top, &changes, limits).await?;
         let mut answer = serde_json::to_value(&impact)

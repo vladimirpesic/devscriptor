@@ -966,6 +966,19 @@ impl DevscriptorServerState {
         self.database.clone()
     }
 
+    /// The files of the index the server reads: its database, and the files
+    /// SQLite keeps beside it.
+    #[must_use]
+    pub fn index_files(&self) -> Vec<PathBuf> {
+        let mut files = vec![self.db_path.clone()];
+        for suffix in ["-wal", "-shm", "-journal"] {
+            let mut name = self.db_path.clone().into_os_string();
+            name.push(suffix);
+            files.push(PathBuf::from(name));
+        }
+        files
+    }
+
     /// Get reference to analysis API
     #[must_use]
     pub fn analysis_api(&self) -> Arc<AnalysisApi> {

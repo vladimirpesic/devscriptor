@@ -229,3 +229,27 @@ async fn a_test_attribute_marks_a_test_in_a_source_file() {
         "{impact}"
     );
 }
+
+/// The index the server reads, kept in the repository and not ignored, is
+/// no part of a change.
+#[tokio::test]
+async fn the_index_in_the_repository_is_no_part_of_a_change() {
+    let (_, repo, _index) = project();
+    let state =
+        devscriptor_mcp::DevscriptorServerState::with_db_path(repo.path().join("devscriptor.db"))
+            .unwrap();
+    let module = CoreModule::new(Arc::new(state));
+    let root = repo.path().display().to_string();
+    call(&module, "scan_codebase", json!({ "path": root })).await;
+    write(repo.path(), "extra.py", "def extra():\n    return 1\n");
+
+    let impact = call(&module, "get_change_impact", json!({ "path": root })).await;
+    let files: Vec<&str> = impact["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["file_path"].as_str().unwrap())
+        .collect();
+    assert_eq!(files.len(), 1, "{impact}");
+    assert!(files[0].ends_with("extra.py"), "{impact}");
+}
