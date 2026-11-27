@@ -77,10 +77,10 @@ preset!(
     ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml"],
     3,
     // `targetDir: true`: build in `target/rust-analyzer`, off the user's
-    // `cargo build` lock.
+    // `cargo build` lock. The check a save runs is clippy's.
     Some(serde_json::json!({
         "cargo": { "features": "all", "targetDir": true },
-        "checkOnSave": { "command": "clippy" }
+        "check": { "command": "clippy" }
     }))
 );
 
@@ -376,10 +376,12 @@ mod tests {
         assert_eq!(c.language_id, "rust");
         assert_eq!(c.command, "rust-analyzer");
         assert!(c.extensions.contains(&"rs".into()));
-        assert_eq!(
-            c.initialization_options.unwrap()["cargo"]["targetDir"],
-            serde_json::Value::Bool(true)
-        );
+        let options = c.initialization_options.unwrap();
+        assert_eq!(options["cargo"]["targetDir"], serde_json::Value::Bool(true));
+        // Set as rust-analyzer reads it now: `checkOnSave` is a boolean, and
+        // an object there is refused.
+        assert_eq!(options["check"]["command"], "clippy");
+        assert!(options.get("checkOnSave").is_none());
     }
 
     #[test]
