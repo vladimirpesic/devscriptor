@@ -256,7 +256,9 @@ first request reliable:
   renames it does not handle.
 - **Pushed diagnostics.** Servers that only push diagnostics after a file opens or
   changes (typescript-language-server, clangd, gopls, jdtls) have them collected;
-  `get_diagnostics` waits for the pushes to settle.
+  `get_diagnostics` waits for the pushes to settle. A file changed on disk since
+  the server had it is sent to it again first, and the pushes waited for are
+  those for its text now.
 
 And these keep a session going:
 

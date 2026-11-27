@@ -296,9 +296,14 @@ impl Translator {
         // Opening or refreshing a document makes the server (re)analyse it, and
         // so does hearing of changes on disk. Let that settle, otherwise a
         // semantic request races the analysis and comes back empty —
-        // indistinguishable, to an agent, from "no such symbol".
+        // indistinguishable, to an agent, from "no such symbol". The document
+        // counts as refreshed whichever sent it anew: the refresh of the
+        // documents changed on disk, or opening it.
+        let key = uri_to_path(&path_to_uri(file_path)?);
+        let sent_before = self.sent_version(&key).await;
         let synced = self.sync_with_disk(&client, language_id).await?;
-        let refreshed = self.ensure_document_open(&client, file_path).await?;
+        let opened = self.ensure_document_open(&client, file_path).await?;
+        let refreshed = opened || self.sent_version(&key).await != sent_before;
         if synced || refreshed {
             client.wait_until_ready().await;
         }
@@ -314,6 +319,16 @@ impl Translator {
             self.await_file_loaded(&client, file_path).await;
         }
         Ok((client, refreshed))
+    }
+
+    /// The version of the document at `key` last sent to its server, if it is
+    /// open.
+    async fn sent_version(&self, key: &str) -> Option<i32> {
+        self.open_documents
+            .read()
+            .await
+            .get(key)
+            .map(|doc| doc.version)
     }
 
     /// Poll `documentSymbol` for a freshly spawned server until it returns

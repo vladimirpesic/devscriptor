@@ -24,6 +24,8 @@ use tokio::process::Command;
 /// `-32601`. In every mode it pushes diagnostics for an opened document in two
 /// waves, as typescript-language-server does — the syntax errors, then the
 /// type errors — spelling the document's URI differently from the client.
+/// It pushes nothing for a change to a document, except in mode `slow-change`,
+/// where it pushes `changed` 2.6 seconds after one.
 const FAKE_SERVER: &str = r#"
 import json, sys, time, urllib.parse
 
@@ -59,7 +61,7 @@ def diagnostic(line, message):
 
 mode = sys.argv[1]
 capabilities = {"textDocumentSync": 1}
-if mode != "push":
+if mode not in ("push", "slow-change"):
     capabilities["diagnosticProvider"] = {"interFileDependencies": False,
                                           "workspaceDiagnostics": False}
 
@@ -79,6 +81,11 @@ while True:
         send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
               "params": {"uri": uri, "diagnostics": [diagnostic(0, "syntax"),
                                                      diagnostic(1, "type")]}})
+    elif method == "textDocument/didChange" and mode == "slow-change":
+        uri = respell(msg["params"]["textDocument"]["uri"])
+        time.sleep(2.6)
+        send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+              "params": {"uri": uri, "diagnostics": [diagnostic(0, "changed")]}})
     elif method == "textDocument/diagnostic":
         if mode == "pull-unhandled":
             send({"jsonrpc": "2.0", "id": msg["id"],
@@ -240,4 +247,29 @@ async fn a_server_with_pull_diagnostics_is_asked() {
     let (first, again, _) = diagnostics_via_translator("pull").await;
     assert_eq!(first, ["pulled"]);
     assert_eq!(again, ["pulled"]);
+}
+
+/// A file changed on disk since the server was sent it is sent again before
+/// the request, and its diagnostics are those pushed for its text now, not
+/// the last ones pushed for the text before, however the server takes its
+/// time to push them.
+#[tokio::test]
+async fn a_file_changed_on_disk_is_diagnosed_as_it_is_now() {
+    let scratch = scratch();
+    let mut translator = Translator::new(Config {
+        workspace: WorkspaceConfig::default(),
+        servers: vec![server_config(&scratch.script, "slow-change")],
+        lifecycle: LifecycleConfig::default(),
+    });
+    translator.set_workspace_roots(vec![]);
+    let ask = || DiagnosticsParams {
+        file_path: scratch.document.display().to_string(),
+    };
+    let before = translator.handle_diagnostics(ask()).await.unwrap();
+    assert_eq!(before.diagnostics.len(), 2);
+    std::fs::write(&scratch.document, "one\ntwo\nthree\nfour\n").unwrap();
+    let now = translator.handle_diagnostics(ask()).await.unwrap();
+    let messages: Vec<&str> = now.diagnostics.iter().map(|d| d.message.as_str()).collect();
+    assert_eq!(messages, ["changed"]);
+    translator.shutdown().await;
 }
