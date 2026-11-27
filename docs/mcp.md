@@ -664,14 +664,27 @@ from 1. † marks the tools that take a symbol by
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
-| `get_diagnostics` | `file_path`\* | Diagnostics (errors/warnings) for a file |
+| `get_diagnostics` | `file_path`\*, `severity`, `wait_ms` | Diagnostics (errors/warnings) for a file as it is on disk, those less severe than `severity` left out |
 | `get_code_actions` | `file_path`\*, `start_line`\*, `start_character`\*, `end_line`\*, `end_character`\* | Available code actions for a range |
 | `get_code_action_resolve` | `action`\* | Resolve an action from `get_code_actions` |
 
 `get_diagnostics` pulls diagnostics from a server that offers them. Others —
 typescript-language-server, clangd, gopls, jdtls — only push them after a file
 is opened or changed: for those it reports what they push, waiting for the
-pushes to settle, so the first call on a file takes a few seconds.
+pushes to settle, so the first call on a file takes a few seconds (it waits up
+to 10 s for a file's first push, and 3 s after a change).
+
+- **`severity`** — `error`, `warning`, `information` or `hint`: the least severe
+  diagnostics reported. `error` reports errors alone; a diagnostic the server
+  gives no severity counts as an error. Left out, all are reported.
+- **`wait_ms`** — the longest to wait for a server's pushes, in milliseconds,
+  their settling included; what was pushed for the file's current text by then
+  answers. The server's start and its readiness are waited for apart.
+- **`stale: true`** in the answer says it may not describe the file as it is
+  now: no push for its current text came in time, and the server had pushed none
+  for the file, or a non-empty list for an earlier text. A last push that was
+  empty still answers, without `stale`: a server need not repeat an empty
+  list.
 
 ### Symbols (4)
 

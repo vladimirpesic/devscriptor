@@ -151,10 +151,24 @@ pub fn tool_list() -> Vec<Tool> {
         // Diagnostics & Actions
         Tool::new(
             "get_diagnostics",
-            "Get diagnostics (errors/warnings) for a file",
+            "Get diagnostics (errors/warnings) for a file, as it is on disk; `severity` \
+             leaves out the less severe, `wait_ms` bounds the wait for a server that pushes \
+             them, and `stale: true` says the answer may describe an older text of the file",
             create_schema(json!({
                 "type": "object",
-                "properties": {"file_path": {"type": "string"}},
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "severity": {
+                        "type": "string",
+                        "enum": ["error", "warning", "information", "hint"],
+                        "description": "The least severe diagnostics to report; `error` reports errors alone. A diagnostic without a severity counts as an error. Default: all"
+                    },
+                    "wait_ms": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "The longest to wait, in milliseconds, for a server that pushes its diagnostics (10 s the first time, 3 s after a change, by default)"
+                    }
+                },
                 "required": ["file_path"]
             })),
         ),

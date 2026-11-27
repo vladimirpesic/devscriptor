@@ -9,15 +9,16 @@ use serde_json::json;
 use devscriptor_lsp::bridge::Translator;
 use devscriptor_lsp::mcp::tools::{
     CallHierarchyItem, CallHierarchyParams, CodeAction, CodeActionResolveParams, CodeActionsParams,
-    Completion, CompletionResolveParams, CompletionsParams, DefinitionParams, DiagnosticsParams,
-    DocumentColorsParams, DocumentHighlightsParams, DocumentLinksParams, DocumentSymbolsParams,
-    FoldingRangesParams, FormatDocumentParams, FormatRangeParams, HoverParams,
-    ImplementationParams, IncomingCallsParams, InlayHintsParams, LinkedEditingRangeParams,
-    OutgoingCallsParams, Position2D, ProjectFilesParams, ProjectSymbolsParams, Range,
-    ReferencesParams, RenameParams, RestartServerParams, SelectionRangeParams,
-    SemanticTokensParams, ServerCapabilitiesParams, ServerProjectsParams, ServerStatusParams,
-    StartServerParams, StopServerParams, SubtypesParams, SupertypesParams, SymbolsParams,
-    TypeDefinitionParams, TypeHierarchyItem, TypeHierarchyParams, WorkspaceSymbolParams,
+    Completion, CompletionResolveParams, CompletionsParams, DefinitionParams, DiagnosticSeverity,
+    DiagnosticsParams, DocumentColorsParams, DocumentHighlightsParams, DocumentLinksParams,
+    DocumentSymbolsParams, FoldingRangesParams, FormatDocumentParams, FormatRangeParams,
+    HoverParams, ImplementationParams, IncomingCallsParams, InlayHintsParams,
+    LinkedEditingRangeParams, OutgoingCallsParams, Position2D, ProjectFilesParams,
+    ProjectSymbolsParams, Range, ReferencesParams, RenameParams, RestartServerParams,
+    SelectionRangeParams, SemanticTokensParams, ServerCapabilitiesParams, ServerProjectsParams,
+    ServerStatusParams, StartServerParams, StopServerParams, SubtypesParams, SupertypesParams,
+    SymbolsParams, TypeDefinitionParams, TypeHierarchyItem, TypeHierarchyParams,
+    WorkspaceSymbolParams,
 };
 
 use super::UnifiedMcpServer;

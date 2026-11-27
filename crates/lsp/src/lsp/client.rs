@@ -705,6 +705,15 @@ impl LspClient {
             .map(|push| push.diagnostics)
     }
 
+    /// The diagnostics the server last pushed for `uri`, if it pushed them
+    /// after `mark`.
+    pub fn pushed_since(&self, uri: &str, mark: u64) -> Option<Vec<lsp_types::Diagnostic>> {
+        self.pushed
+            .latest(&document_key(uri))
+            .filter(|push| push.number > mark)
+            .map(|push| push.diagnostics)
+    }
+
     /// The diagnostics the server pushes for `uri` after `mark`.
     ///
     /// Waits up to `wait` for a push for `uri` later than `mark`, then until

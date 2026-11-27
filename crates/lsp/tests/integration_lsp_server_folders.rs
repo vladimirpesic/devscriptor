@@ -141,6 +141,7 @@ async fn clangd_started_for_a_file_knows_its_workspace_and_takes_in_others() {
     translator.set_workspace_roots(vec![workspace.clone()]);
     let open = |file: &Path| DiagnosticsParams {
         file_path: file.display().to_string(),
+        ..DiagnosticsParams::default()
     };
 
     translator.handle_diagnostics(open(&luhn)).await.unwrap();

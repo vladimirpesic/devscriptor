@@ -22,10 +22,12 @@ use tokio::process::Command;
 /// A fake language server. In mode `push` it offers no pull diagnostics; in
 /// `pull` it answers them; in `pull-unhandled` it offers them but answers
 /// `-32601`. In every mode it pushes diagnostics for an opened document in two
-/// waves, as typescript-language-server does — the syntax errors, then the
-/// type errors — spelling the document's URI differently from the client.
+/// waves, as typescript-language-server does — the syntax error, then a type
+/// warning with it — spelling the document's URI differently from the client.
 /// It pushes nothing for a change to a document, except in mode `slow-change`,
-/// where it pushes `changed` 2.6 seconds after one.
+/// where it pushes `changed` 2.6 seconds after one. Modes `once` and `late`
+/// push only: `once` for a document's first opening alone, `late` three
+/// seconds after it.
 const FAKE_SERVER: &str = r#"
 import json, sys, time, urllib.parse
 
@@ -54,14 +56,15 @@ def respell(uri):
     path = urllib.parse.unquote(uri[len("file://"):])
     return "file://" + urllib.parse.quote(path, safe="/").replace(".", "%2E")
 
-def diagnostic(line, message):
+def diagnostic(line, message, severity=1):
     return {"range": {"start": {"line": line, "character": 0},
                       "end": {"line": line, "character": 1}},
-            "severity": 1, "source": "fake", "message": message}
+            "severity": severity, "source": "fake", "message": message}
 
 mode = sys.argv[1]
 capabilities = {"textDocumentSync": 1}
-if mode not in ("push", "slow-change"):
+opened = set()
+if mode not in ("push", "once", "late", "slow-change"):
     capabilities["diagnosticProvider"] = {"interFileDependencies": False,
                                           "workspaceDiagnostics": False}
 
@@ -74,13 +77,16 @@ while True:
         send({"jsonrpc": "2.0", "id": msg["id"], "result": {"capabilities": capabilities}})
     elif method == "textDocument/didOpen":
         uri = respell(msg["params"]["textDocument"]["uri"])
-        time.sleep(0.2)
+        if mode == "once" and uri in opened:
+            continue
+        opened.add(uri)
+        time.sleep(3 if mode == "late" else 0.2)
         send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
               "params": {"uri": uri, "diagnostics": [diagnostic(0, "syntax")]}})
         time.sleep(0.6)
         send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
               "params": {"uri": uri, "diagnostics": [diagnostic(0, "syntax"),
-                                                     diagnostic(1, "type")]}})
+                                                     diagnostic(1, "type", 2)]}})
     elif method == "textDocument/didChange" and mode == "slow-change":
         uri = respell(msg["params"]["textDocument"]["uri"])
         time.sleep(2.6)
@@ -207,6 +213,7 @@ async fn diagnostics_via_translator(mode: &str) -> (Vec<String>, Vec<String>, Du
     translator.set_workspace_roots(vec![]);
     let params = || DiagnosticsParams {
         file_path: scratch.document.display().to_string(),
+        ..DiagnosticsParams::default()
     };
     let first = translator.handle_diagnostics(params()).await.unwrap();
     let started = Instant::now();
@@ -249,21 +256,104 @@ async fn a_server_with_pull_diagnostics_is_asked() {
     assert_eq!(again, ["pulled"]);
 }
 
+/// A translator over the fake server in `mode`, and a document for it.
+fn translator(mode: &str) -> (Scratch, Translator) {
+    let scratch = scratch();
+    let mut translator = Translator::new(Config {
+        workspace: WorkspaceConfig::default(),
+        servers: vec![server_config(&scratch.script, mode)],
+        lifecycle: LifecycleConfig::default(),
+    });
+    translator.set_workspace_roots(vec![]);
+    (scratch, translator)
+}
+
+/// `severity` leaves out the diagnostics less severe than it.
+#[tokio::test]
+async fn severity_leaves_out_the_less_severe() {
+    use devscriptor_lsp::mcp::tools::DiagnosticSeverity;
+    let (scratch, translator) = translator("push");
+    let ask = |severity| DiagnosticsParams {
+        file_path: scratch.document.display().to_string(),
+        severity,
+        wait_ms: None,
+    };
+    let errors = translator
+        .handle_diagnostics(ask(Some(DiagnosticSeverity::Error)))
+        .await
+        .unwrap();
+    let names = |result: &devscriptor_lsp::mcp::tools::DiagnosticsResult| {
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.message.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(&errors), ["syntax"]);
+    let warnings = translator
+        .handle_diagnostics(ask(Some(DiagnosticSeverity::Warning)))
+        .await
+        .unwrap();
+    assert_eq!(names(&warnings), ["syntax", "type"]);
+    translator.shutdown().await;
+}
+
+/// After a change the server pushes nothing for, the answer is its last push
+/// for the earlier text, said to be stale, within `wait_ms`.
+#[tokio::test]
+async fn a_change_with_no_push_in_time_is_answered_as_stale() {
+    let (scratch, translator) = translator("once");
+    let ask = |wait_ms| DiagnosticsParams {
+        file_path: scratch.document.display().to_string(),
+        severity: None,
+        wait_ms,
+    };
+    let first = translator.handle_diagnostics(ask(None)).await.unwrap();
+    assert!(!first.stale);
+    assert_eq!(first.diagnostics.len(), 2);
+
+    std::fs::write(&scratch.document, "one\ntwo\nthree\nfour\n").unwrap();
+    let started = Instant::now();
+    let after = translator.handle_diagnostics(ask(Some(300))).await.unwrap();
+    let elapsed = started.elapsed();
+    assert!(after.stale, "no push followed the change");
+    assert_eq!(after.diagnostics.len(), 2);
+    // The server's readiness is waited for first; the pushes no longer.
+    assert!(elapsed < Duration::from_secs(4), "took {elapsed:?}");
+    let json = serde_json::to_value(&after).unwrap();
+    assert_eq!(json["stale"], true);
+    assert!(serde_json::to_value(&first).unwrap().get("stale").is_none());
+    translator.shutdown().await;
+}
+
+/// A server that has not pushed within `wait_ms` for a document sent the
+/// first time leaves the answer empty and stale: nothing is known yet.
+#[tokio::test]
+async fn nothing_pushed_in_time_is_unknown_not_clean() {
+    let (scratch, translator) = translator("late");
+    let result = translator
+        .handle_diagnostics(DiagnosticsParams {
+            file_path: scratch.document.display().to_string(),
+            severity: None,
+            wait_ms: Some(300),
+        })
+        .await
+        .unwrap();
+    assert!(result.stale);
+    assert!(result.diagnostics.is_empty());
+    translator.shutdown().await;
+}
+
 /// A file changed on disk since the server was sent it is sent again before
 /// the request, and its diagnostics are those pushed for its text now, not
 /// the last ones pushed for the text before, however the server takes its
 /// time to push them.
 #[tokio::test]
 async fn a_file_changed_on_disk_is_diagnosed_as_it_is_now() {
-    let scratch = scratch();
-    let mut translator = Translator::new(Config {
-        workspace: WorkspaceConfig::default(),
-        servers: vec![server_config(&scratch.script, "slow-change")],
-        lifecycle: LifecycleConfig::default(),
-    });
-    translator.set_workspace_roots(vec![]);
+    let (scratch, translator) = translator("slow-change");
     let ask = || DiagnosticsParams {
         file_path: scratch.document.display().to_string(),
+        ..DiagnosticsParams::default()
     };
     let before = translator.handle_diagnostics(ask()).await.unwrap();
     assert_eq!(before.diagnostics.len(), 2);

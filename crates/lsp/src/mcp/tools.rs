@@ -153,10 +153,21 @@ pub struct CompletionsResult {
 }
 
 /// Parameters for diagnostics tool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DiagnosticsParams {
     /// Path to the file.
     pub file_path: String,
+    /// The least severe diagnostics to report: `Error` reports errors alone,
+    /// `Hint` (or `None`) everything. A diagnostic the server gives no
+    /// severity counts as an error, as editors take it.
+    #[serde(default)]
+    pub severity: Option<DiagnosticSeverity>,
+    /// How long, at most, to wait for a server that pushes its diagnostics
+    /// rather than answering for them; `None` waits as long as it takes such
+    /// a server to push for a document (10 s the first time, 3 s after a
+    /// change, and until its pushes settle).
+    #[serde(default)]
+    pub wait_ms: Option<u64>,
 }
 
 /// Result of diagnostics tool.
@@ -164,6 +175,11 @@ pub struct DiagnosticsParams {
 pub struct DiagnosticsResult {
     /// Diagnostics (errors/warnings).
     pub diagnostics: Vec<Diagnostic>,
+    /// Whether these may not describe the file as it is now: no push for its
+    /// current text came within the wait, and the server had pushed none, or
+    /// a non-empty list, for an earlier text.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
 }
 
 /// Parameters for document symbols tool.
@@ -1589,7 +1605,7 @@ pub struct Completion {
 }
 
 /// Diagnostic severity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DiagnosticSeverity {
     /// Error severity.
@@ -1600,6 +1616,37 @@ pub enum DiagnosticSeverity {
     Information,
     /// Hint severity.
     Hint,
+}
+
+impl DiagnosticSeverity {
+    /// The severity a parameter names: `error`, `warning`, `information` or
+    /// `hint`.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "error" => Some(Self::Error),
+            "warning" => Some(Self::Warning),
+            "information" => Some(Self::Information),
+            "hint" => Some(Self::Hint),
+            _ => None,
+        }
+    }
+
+    /// Whether a diagnostic of this severity is at least as severe as
+    /// `least`.
+    #[must_use]
+    pub fn at_least(self, least: Self) -> bool {
+        self.rank() <= least.rank()
+    }
+
+    const fn rank(self) -> u8 {
+        match self {
+            Self::Error => 1,
+            Self::Warning => 2,
+            Self::Information => 3,
+            Self::Hint => 4,
+        }
+    }
 }
 
 /// Diagnostic information.

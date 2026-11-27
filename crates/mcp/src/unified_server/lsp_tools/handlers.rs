@@ -99,19 +99,57 @@ impl UnifiedMcpServer {
         }
     );
 
-    lsp_handler!(
-        get_diagnostics_impl,
-        handle_diagnostics,
-        DiagnosticsParams,
-        |args: serde_json::Map<String, serde_json::Value>| {
-            let file_path = args
-                .get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            DiagnosticsParams { file_path }
+    /// `get_diagnostics`: a file's diagnostics, as severe as `severity` or
+    /// more, waited for at most `wait_ms` where the server pushes them.
+    pub(super) async fn get_diagnostics_impl(
+        &self,
+        translator: &Arc<Translator>,
+        args: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        let file_path = args
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let severity = match args.get("severity") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => Some(
+                value
+                    .as_str()
+                    .and_then(DiagnosticSeverity::parse)
+                    .ok_or_else(|| {
+                        McpError::invalid_params(
+                            format!(
+                                "severity {value} is not one of error, warning, information, hint"
+                            ),
+                            None,
+                        )
+                    })?,
+            ),
+        };
+        let wait_ms = match args.get("wait_ms") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => Some(value.as_u64().ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("wait_ms {value} is not a number of milliseconds"),
+                    None,
+                )
+            })?),
+        };
+        let params = DiagnosticsParams {
+            file_path,
+            severity,
+            wait_ms,
+        };
+        match translator.handle_diagnostics(params).await {
+            Ok(result) => Ok(CallToolResult::success(vec![
+                ContentBlock::json(result).map_err(|e| {
+                    McpError::internal_error(format!("Failed to serialize result: {e}"), None)
+                })?,
+            ])),
+            Err(e) => Err(McpError::internal_error(e.to_string(), None)),
         }
-    );
+    }
 
     lsp_handler!(
         get_code_actions_impl,

@@ -196,8 +196,12 @@ impl Translator {
     /// with `textDocument/diagnostic`. One that does not only pushes them —
     /// typescript-language-server, clangd, gopls, jdtls — so the answer is what
     /// it pushes for the file: after opening or refreshing it, the pushes that
-    /// follow; otherwise the last one. Asked with `textDocument/diagnostic`,
-    /// those servers would fail every call with `-32601 Unhandled method`.
+    /// follow, waited for at most `wait_ms`; otherwise the last one. Asked with
+    /// `textDocument/diagnostic`, those servers would fail every call with
+    /// `-32601 Unhandled method`. When no push follows the file's refresh in
+    /// time, the last push before it answers, and the answer says it is
+    /// `stale` unless that push was empty. Diagnostics less severe than
+    /// `severity` are left out.
     ///
     /// # Errors
     ///
@@ -214,20 +218,22 @@ impl Translator {
         let (client, refreshed) = self.open_file(file_path).await?;
         let uri = path_to_uri(file_path)?;
 
-        let diagnostics = if self
+        let cap = params.wait_ms.map(std::time::Duration::from_millis);
+        let (diagnostics, stale) = if self
             .server_supports(&language_id, "diagnosticProvider")
             .await
         {
             match Self::pull_diagnostics(&client, &uri).await {
                 Err(LspError::LspServerError { code, .. }) if code == LSP_METHOD_NOT_FOUND => {
-                    Self::pushed_diagnostics(&client, &uri, mark, refreshed).await
+                    Self::pushed_diagnostics(&client, &uri, mark, refreshed, cap).await
                 }
-                pulled => pulled?,
+                pulled => (pulled?, false),
             }
         } else {
-            Self::pushed_diagnostics(&client, &uri, mark, refreshed).await
+            Self::pushed_diagnostics(&client, &uri, mark, refreshed, cap).await
         };
 
+        let least = params.severity.unwrap_or(DiagnosticSeverity::Hint);
         let diagnostics = diagnostics
             .into_iter()
             .map(|d| Diagnostic {
@@ -251,9 +257,14 @@ impl Translator {
                 source: d.source,
                 message: d.message,
             })
+            .filter(|d| {
+                d.severity
+                    .unwrap_or(DiagnosticSeverity::Error)
+                    .at_least(least)
+            })
             .collect();
 
-        Ok(DiagnosticsResult { diagnostics })
+        Ok(DiagnosticsResult { diagnostics, stale })
     }
 
     /// Ask `client` for `uri`'s diagnostics with `textDocument/diagnostic`.
@@ -283,30 +294,44 @@ impl Translator {
     }
 
     /// The diagnostics `client` pushes for `uri`: those it pushes after `mark`
-    /// when the document was just sent to it (`refreshed`), else its last push.
+    /// when the document was just sent to it (`refreshed`), else its last push;
+    /// and whether they are stale: no push followed in time, and the server
+    /// had pushed none, or a non-empty list, for the document before.
     ///
     /// A document sent for the first time is always pushed for once analysed,
     /// so that wait is long. A change to one already pushed for may push
     /// nothing — typescript-language-server skips a push that would repeat an
-    /// empty list — so that wait is short and ends in the last push.
+    /// empty list — so that wait is short and ends in the last push. `cap`
+    /// bounds the whole wait, the pushes' settling included: past it, the
+    /// latest push since `mark`, if any, answers.
     pub(super) async fn pushed_diagnostics(
         client: &LspClient,
         uri: &lsp_types::Uri,
         mark: u64,
         refreshed: bool,
-    ) -> Vec<lsp_types::Diagnostic> {
+        cap: Option<std::time::Duration>,
+    ) -> (Vec<lsp_types::Diagnostic>, bool) {
         let last = client.pushed_diagnostics(uri.as_str());
         let wait = match (&last, refreshed) {
-            (Some(_), false) => return last.unwrap_or_default(),
+            (Some(_), false) => return (last.unwrap_or_default(), false),
             (Some(_), true) => PUSH_CHANGE_WAIT,
             (None, _) => PUSH_FIRST_WAIT,
         };
-        match client
-            .await_pushed_diagnostics(uri.as_str(), mark, wait, PUSH_SETTLE)
-            .await
-        {
-            Some(pushed) => pushed,
-            None => last.unwrap_or_default(),
+        let pushes = client.await_pushed_diagnostics(uri.as_str(), mark, wait, PUSH_SETTLE);
+        let pushed = match cap {
+            Some(cap) => tokio::time::timeout(cap, pushes)
+                .await
+                .unwrap_or_else(|_| client.pushed_since(uri.as_str(), mark)),
+            None => pushes.await,
+        };
+        match pushed {
+            Some(pushed) => (pushed, false),
+            // An empty last push still holds: a server may skip a push that
+            // would repeat an empty list.
+            None => {
+                let stale = last.as_ref().is_none_or(|last| !last.is_empty());
+                (last.unwrap_or_default(), stale)
+            }
         }
     }
 
