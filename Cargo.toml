@@ -45,10 +45,10 @@ tree-sitter = "0.27"
 tree-sitter-bash = "0.25"
 tree-sitter-typescript = "0.23"
 tree-sitter-c = "0.24"
-tree-sitter-c-sharp = "0.23"
+tree-sitter-c-sharp = "0.24"
 tree-sitter-cpp = "0.23"
 tree-sitter-cuda = "0.21"
-tree-sitter-dart = "0.2"
+tree-sitter-dart = "0.3"
 tree-sitter-fsharp = "0.3"
 tree-sitter-go = "0.25"
 tree-sitter-graphql = "0.3"
@@ -57,7 +57,7 @@ tree-sitter-java = "0.23"
 tree-sitter-javascript = "0.25"
 tree-sitter-kotlin-ng = "1.1"
 tree-sitter-objc = "3.0"
-tree-sitter-php = "0.24"
+tree-sitter-php = "0.25"
 tree-sitter-python = "0.25"
 tree-sitter-ruby = "0.23"
 tree-sitter-rust = "0.24"
@@ -125,7 +125,7 @@ futures = "0.3"
 rmcp = { version = "3.9", default-features = false, features = ["server"] }
 
 # File watching
-notify = "8"
+notify = "9"
 
 # Serialization
 serde = { version = "1", features = ["derive", "rc"] }
@@ -152,14 +152,14 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 # System
 num_cpus = "1.16"
 # Only system memory and disks are read.
-sysinfo = { version = "0.39", default-features = false, features = ["system", "disk"] }
+sysinfo = { version = "0.40", default-features = false, features = ["system", "disk"] }
 
 # Utilities
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 time = { version = "0.3", features = ["serde", "serde-well-known", "formatting", "parsing"] }
-parking_lot = "0.12"
+parking_lot = "0.13"
 flate2 = "1"
 tar = "0.4"
 # LSP server archives are plain deflate; the other methods (bzip2, zstd, lzma,
@@ -191,7 +191,7 @@ which = "8"
 async-compression = "0.4"
 hex = "0.4"
 dialoguer = "0.12"
-nix = { version = "0.31", features = ["process", "fs"] }
+nix = { version = "0.32", features = ["process", "fs"] }
 libc = "0.2"
 # The version tokio uses: no second copy.
 windows-sys = "0.61"
