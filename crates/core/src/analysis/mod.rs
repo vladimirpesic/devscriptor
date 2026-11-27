@@ -12,6 +12,7 @@
 pub mod api;
 pub mod architectural_patterns;
 pub mod call_graph;
+pub mod change_impact;
 pub mod clone_detection;
 pub mod code_smells;
 pub mod complexity;
@@ -19,6 +20,7 @@ pub mod cross_file;
 pub mod cross_reference;
 pub mod dead_code;
 pub mod refactoring;
+pub mod test_code;
 
 pub use api::{
     AnalysisApi, AnalysisFinding, AnalysisJob, AnalysisResults, AnalysisSummary, AnalysisType,

@@ -439,7 +439,7 @@ test checks, and the language server tools are named only in a build that has
 them. What holds for many tools — positions counted from 1 in `cite` and in the
 search results — is said there once, not in each tool's description.
 
-**Why:** 75 tools are too many for a model to hold at once, so clients announce
+**Why:** 76 tools are too many for a model to hold at once, so clients announce
 them by name and load a definition on demand. A model reaches first for the tools
 it holds: with every tool behind a loading step it searches files with `grep` and
 reads them, though its prompt describes Devscriptor. Told which tools to start

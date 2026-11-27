@@ -6,8 +6,8 @@
 //! # This is not the binary AI agents run
 //!
 //! Agents run the universal `devscriptor` binary via `devscriptor mcp`, which
-//! serves all **75** tools. This standalone binary is for development: without
-//! `--features lsp` it serves only the **32 core** tools, since
+//! serves all **76** tools. This standalone binary is for development: without
+//! `--features lsp` it serves only the **33 core** tools, since
 //! the 38 LSP and 5 architecture tools are behind that compile-time feature.
 //!
 //! It is named `devscriptor-mcp-standalone` precisely so the two cannot be
@@ -16,7 +16,7 @@
 //! # Feature Flags
 //!
 //! - `rmcp-sdk` (default): the MCP server, on the rmcp crate
-//! - `lsp`: adds the 38 LSP + 5 architecture tools (75 total)
+//! - `lsp`: adds the 38 LSP + 5 architecture tools (76 total)
 
 #[cfg(feature = "rmcp-sdk")]
 #[tokio::main]

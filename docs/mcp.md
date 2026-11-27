@@ -1,7 +1,7 @@
 # MCP server
 
 Devscriptor serves its code intelligence to AI agents as one Model Context
-Protocol server of **75 tools**. This page describes running the server and every
+Protocol server of **76 tools**. This page describes running the server and every
 tool. The tables mirror the server's `tools/list`; parameters marked `*` are
 required.
 
@@ -9,30 +9,30 @@ required.
 
 - [Overview](#overview)
 - [Running the MCP Server](#running-the-mcp-server)
-- [Getting all 75 tools](#getting-all-75-tools)
+- [Getting all 76 tools](#getting-all-76-tools)
 - [Tool annotations](#tool-annotations)
 - [Failed calls](#failed-calls)
 - [Parameter conventions](#parameter-conventions)
-- [Core Tools (32)](#core-tools-32)
+- [Core Tools (33)](#core-tools-33)
 - [LSP Tools (38)](#lsp-tools-38)
 - [Architecture Tools (5)](#architecture-tools-5)
 - [MCP Client Configuration](#mcp-client-configuration)
 
 ## Overview
 
-Devscriptor provides **75 MCP tools** across three categories:
+Devscriptor provides **76 MCP tools** across three categories:
 
 | Category | Count | Description |
 | --- | --- | --- |
-| Core Tools | 32 | Code scanning, search, analysis, embeddings, context graph, real-time watcher |
+| Core Tools | 33 | Code scanning, search, analysis, change impact, embeddings, context graph, real-time watcher |
 | LSP Tools | 38 | Language Server Protocol features across 21 language servers |
 | Architecture Tools | 5 | LSP detection, prerequisite checking, and setup |
-| **Total** | **75** | Complete code-intelligence toolkit |
+| **Total** | **76** | Complete code-intelligence toolkit |
 
-The 32 core tools break down as **24** scan/search/analyze/file tools, **5**
+The 33 core tools break down as **25** scan/search/analyze/file tools, **5**
 [Context Graph](context-graph.md) tools, and **3** watcher tools.
 
-> The Context Graph is **5 MCP tools**, already counted inside the 32 core tools.
+> The Context Graph is **5 MCP tools**, already counted inside the 33 core tools.
 > The number **9** that sometimes gets attached to it is the count of *note types*
 > (`adr`, `standard`, `optimization`, `failure`, `practice`, `reflection`,
 > `general`, `file_description`, `modification`), not tools.
@@ -41,7 +41,7 @@ All tools are exposed through the **unified MCP server**, which runs inside the
 same `devscriptor` binary used for the CLI. The server speaks the Model Context
 Protocol as JSON-RPC over stdio, and there is no network port: the clients of a
 workspace share one server process through a local socket (see
-[Running the MCP Server](#running-the-mcp-server)). `tools/list` returns all 75
+[Running the MCP Server](#running-the-mcp-server)). `tools/list` returns all 76
 tools in a single page (`nextCursor` is always `null`).
 
 ## Running the MCP Server
@@ -185,16 +185,16 @@ read: the tracing filter is a fixed directive (`warn` normally, `debug` with
 ([Runtime directory and logs](#runtime-directory-and-logs)), and to stderr as well
 when that is a terminal.
 
-## Getting all 75 tools
+## Getting all 76 tools
 
 The 38 LSP and 5 Architecture tools live behind the **compile-time** `lsp`
 feature. Which binary you run therefore decides how many tools you get:
 
 | What you run | Tools |
 | --- | ---: |
-| `devscriptor mcp` — the CLI built with `devscriptor-cli` **default** features (`lsp` + `mcp`) | **75** |
-| `devscriptor-mcp-standalone`, built from the `devscriptor-mcp` crate (its defaults omit `lsp`) | 32 |
-| Any build with `--no-default-features` | ≤ 32 |
+| `devscriptor mcp` — the CLI built with `devscriptor-cli` **default** features (`lsp` + `mcp`) | **76** |
+| `devscriptor-mcp-standalone`, built from the `devscriptor-mcp` crate (its defaults omit `lsp`) | 33 |
+| Any build with `--no-default-features` | ≤ 33 |
 
 Do **not** pass `--features` when building for release; `devscriptor-cli`'s
 defaults already produce the full universal binary:
@@ -203,13 +203,13 @@ defaults already produce the full universal binary:
 cargo build --release -p devscriptor-cli   # → target/release/devscriptor
 ```
 
-A 32-tool server silently omits every LSP and Architecture tool: the agent still
+A 33-tool server silently omits every LSP and Architecture tool: the agent still
 "works", it just never navigates code.
 
 To verify after installing, read the tool count the server advertises. Its MCP
 `initialize` response carries an `instructions` field beginning
-`Devscriptor Unified MCP Server - Complete 75-tool implementation`, and a
-`tools/list` call returns exactly 75 entries — including `get_hover` (LSP),
+`Devscriptor Unified MCP Server - Complete 76-tool implementation`, and a
+`tools/list` call returns exactly 76 entries — including `get_hover` (LSP),
 `lsp_arch_setup` (Architecture) and `start_watching` (watcher). Any MCP client's
 tool inspector will show this; there is no startup banner to read, because the
 server must not print to stdout.
@@ -304,7 +304,7 @@ Take parameters from the live `tools/list` schema; the tables below mirror it.
   `get_completions`, and `get_code_action_resolve` an `action` from
   `get_code_actions`. Pass the object through unchanged.
 
-## Core Tools (32)
+## Core Tools (33)
 
 Core tools operate on the local SQLite knowledge graph built by `devscriptor
 scan` or `scan_codebase`. They require no language server.
@@ -517,12 +517,13 @@ the directory `path` names, or the file `file_path` matches — and returns
 complex whatever their score, `threshold` (10: a function above it is `medium`
 risk, above twice it `high`) and how many are `functions_above_threshold`.
 
-### Entities & Relationships (2)
+### Entities & Relationships (3)
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
 | `get_entity_details` | `entity_type`\*, `name`\*, `file_path` | Where an entity is, and its signature, members, fields and supertypes |
 | `get_relationships` | `entity_name`\*, `entity_type`, `file_path`, `relationship_type` | What an entity is linked to (calls, uses, supertypes, members), with where each end is and the lines a call is made on |
+| `get_change_impact` | `base`, `path`, `depth`, `limit` | What a change touches: the entities it changes, what depends on them, and the tests to run for it |
 
 `get_entity_details` reports where an entity is and what the index holds of
 its kind: a function's `parameters`, `return_type`, `parent_class`,
@@ -559,6 +560,44 @@ is certain.
 
 ```json
 { "entity_type": "function", "name": "parse_file", "file_path": "src/parser.rs" }
+```
+
+`get_change_impact` reads the change from git: by default the uncommitted
+changes against `HEAD`, untracked files included; with `base` a branch, a tag or
+a commit, the working tree against it; with a range `a..b`, the changes between
+two commits. `path` is a directory in the repository, the workspace's project
+by default. Git runs with its fsmonitor off and without external diff or
+textconv programs, so a repository's config runs nothing.
+
+- **`changed`** — the entities the change touches, each with the `lines` of it
+  touched (`12-14, 20`). A changed line belongs to the innermost entity holding
+  it — the method, not its class — and lines removed with nothing in their place
+  to the entity holding the lines on both sides.
+- **`dependents`** — what depends on them, up to `depth` relationships away (3
+  by default, at most 6): callers, and the entities that use, reference, extend,
+  implement or override them, then what depends on those. Each gives its
+  `depth` and the changed entities it `reaches`. Modules, namespaces and
+  documentation sections are not followed: a module's imports would make every
+  file that imports it a dependent.
+- **`tests`** — the test code among the changed entities (`depth` 0) and their
+  dependents: by its file (a test directory, `test_*.py`, `*_test.go`,
+  `*.spec.ts`, `*Test.java`), its name (`test_total`, `testTotal`, Go's
+  `TestTotal`), or an attribute that marks a test (`#[test]`, `#[tokio::test]`,
+  `@Test`, `[Fact]`). These are the tests to run for the change, as far as the
+  index connects them to it.
+- **`files`** — each changed file with its `status` (`added`, `modified`,
+  `deleted`, `renamed`, `untracked`), its `changed_lines`, and the lines
+  `removed` that no entity holds now — entities removed whole — with the
+  declaration git names beside them (`near`). `not_indexed` names the changed
+  files the index holds no entity of.
+
+Each list holds at most `limit` entries (50 by default, at most 500), and
+`truncated` says when one was cut or the walk stopped short. The changed files
+are re-indexed for the answer like any other it names ([Answers follow the
+files on disk](#answers-follow-the-files-on-disk)).
+
+```json
+{ "base": "main", "depth": 2 }
 ```
 
 ### Context Graph (5)
@@ -778,8 +817,8 @@ and installs language servers — gate it behind user approval in an agent.
 
 ## MCP Client Configuration
 
-Point your MCP client at a **75-tool** entry point (see
-[Getting all 75 tools](#getting-all-75-tools)).
+Point your MCP client at a **76-tool** entry point (see
+[Getting all 76 tools](#getting-all-76-tools)).
 
 After the tool count, the server's `instructions`, which a client may pass to its
 model, say where to start: `semantic_search`, `search_functions` and
@@ -826,7 +865,7 @@ assistants share the extension's daemon. See
 [the extension's README](../vscode-extension/README.md#ai-assistants-in-vs-code).
 
 `devscriptor-mcp-standalone`, built from the `devscriptor-mcp` crate, is a
-development binary that serves only the 32 core tools. It is not what agents run.
+development binary that serves only the 33 core tools. It is not what agents run.
 
 ### Timeouts
 

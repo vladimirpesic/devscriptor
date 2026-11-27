@@ -529,27 +529,7 @@ impl EntityInfo {
     /// `TestTotal`). A test annotation (`#[test]`, `@Test`) registers what it
     /// marks as any other does (see [`Self::has_entry_decorator`]).
     fn is_test_code(&self) -> bool {
-        let path = &self.path_in_project;
-        let in_test_dir = path.components().any(|part| {
-            matches!(
-                part.as_os_str().to_str(),
-                Some("test" | "tests" | "spec" | "specs" | "__tests__" | "testing" | "Tests")
-            )
-        });
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        let test_file = stem.starts_with("test_")
-            || stem.ends_with("_test")
-            || stem.ends_with("_spec")
-            || stem.ends_with(".test")
-            || stem.ends_with(".spec")
-            || stem.ends_with("Test")
-            || stem.ends_with("Tests");
-        let test_name = names_a_test(&self.name, "test")
-            || (self.language == "go"
-                && ["Test", "Benchmark", "Example", "Fuzz"]
-                    .iter()
-                    .any(|prefix| names_a_test(&self.name, prefix)));
-        in_test_dir || test_file || test_name
+        super::test_code::is_test_code(&self.path_in_project, &self.name, &self.language)
     }
 
     /// Whether a decorator or annotation registers it with a framework.
@@ -620,14 +600,6 @@ fn path_in_project(file: &str, roots: &[PathBuf]) -> PathBuf {
         .filter_map(|root| file.strip_prefix(root).ok())
         .max_by_key(|within| within.components().count())
         .map_or_else(|| file.to_path_buf(), Path::to_path_buf)
-}
-
-/// Whether `name` is `prefix`, or `prefix` and then a word of its own — `test`,
-/// `test_total`, `testTotal`, `TestTotal`, `Test1` — not a word beginning with
-/// its letters (`testimonials`, `Testify`).
-fn names_a_test(name: &str, prefix: &str) -> bool {
-    name.strip_prefix(prefix)
-        .is_some_and(|rest| rest.chars().next().is_none_or(|c| !c.is_lowercase()))
 }
 
 /// The types each type extends or implements, and their members: what a

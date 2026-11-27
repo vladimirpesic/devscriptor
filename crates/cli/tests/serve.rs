@@ -324,7 +324,7 @@ fn sessions_share_one_daemon_until_it_is_stopped() {
         assert_eq!(session.functions("compute_total"), ["compute_total"]);
     }
     let tools = second.request("tools/list", json!({}));
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 75);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 76);
     drop((first, second));
 
     let mut stdout = String::new();
@@ -407,7 +407,7 @@ fn a_client_is_served_through_the_workspace_daemon() {
     let mut proxy = workspace.proxy(&[]);
     assert_eq!(proxy.session.functions("compute_total"), ["compute_total"]);
     let tools = proxy.session.request("tools/list", json!({}));
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 75);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 76);
     assert!(workspace.socket().is_some(), "the daemon listens");
     assert_eq!(workspace.daemons().len(), 1, "one daemon serves");
 
@@ -713,7 +713,7 @@ fn no_daemon_behaves_as_before() {
     assert_eq!(proxy.session.daemon_pid(), None);
     assert_eq!(proxy.session.functions("compute_total"), ["compute_total"]);
     let tools = proxy.session.request("tools/list", json!({}));
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 75);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 76);
     assert!(proxy.close().0.success());
     assert!(workspace.daemons().is_empty());
     assert!(

@@ -1,7 +1,7 @@
 //! Unified MCP Server - Core + LSP Integration
 //!
-//! Combines 32 Core tools with 38 LSP tools and 5 LSP Architecture tools
-//! for a total of 75 MCP tools, served with the rmcp SDK.
+//! Combines 33 Core tools with 38 LSP tools and 5 LSP Architecture tools
+//! for a total of 76 MCP tools, served with the rmcp SDK.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -45,6 +45,7 @@ static CORE_TOOLS: std::sync::LazyLock<HashSet<&'static str>> = std::sync::LazyL
         "generate_embeddings",
         "get_entity_details",
         "get_relationships",
+        "get_change_impact",
         "find_dead_code",
         "analyze_complexity",
         "add_context_note",
@@ -263,7 +264,7 @@ impl UnifiedMcpServer {
     /// returns `Ok` when *no* server applies to the workspace, but
     /// `Err(AllServersFailedToInit)` when every applicable server fails to spawn
     /// — e.g. a Rust project on a machine without `rust-analyzer`. Propagating
-    /// that error killed the whole MCP server at startup, taking the 32 core
+    /// that error killed the whole MCP server at startup, taking the 33 core
     /// tools and the 5 architecture tools down with it — including
     /// `lsp_arch_setup`, the very tool that installs the missing server.
     ///

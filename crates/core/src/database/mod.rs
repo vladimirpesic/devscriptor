@@ -1022,6 +1022,56 @@ impl Database {
         .map_err(|e| Error::task_join("get entity names for ids", e))?
     }
 
+    /// The language and the decorators (annotations, attributes) of each of
+    /// `ids` that exists: what tells a test apart where its name and file do
+    /// not, such as Rust's `#[test]` functions in a source file. An id that is
+    /// not stored is left out.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
+    pub async fn get_entity_marks_by_ids(
+        &self,
+        ids: &[EntityId],
+    ) -> Result<std::collections::HashMap<EntityId, (String, Vec<String>)>> {
+        if ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let pool = self.pool.clone();
+        let id_strings: Vec<String> = ids.iter().map(std::string::ToString::to_string).collect();
+        tokio::task::spawn_blocking(move || {
+            let conn = pool.get()?;
+            let mut marks = std::collections::HashMap::with_capacity(id_strings.len());
+            for chunk in id_strings.chunks(900) {
+                let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                let sql = format!(
+                    "SELECT id, language, COALESCE(json_extract(data, '$.decorators'), '[]') \
+                     FROM entities WHERE id IN ({placeholders})"
+                );
+                let mut stmt = conn.prepare_cached(&sql)?;
+                let params: Vec<&dyn rusqlite::ToSql> =
+                    chunk.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+                let rows = stmt
+                    .query_map(&params[..], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    })?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                for (id, language, decorators) in rows {
+                    if let Ok(id) = uuid::Uuid::parse_str(&id) {
+                        let decorators = serde_json::from_str(&decorators).unwrap_or_default();
+                        marks.insert(id, (language, decorators));
+                    }
+                }
+            }
+            Ok(marks)
+        })
+        .await
+        .map_err(|e| Error::task_join("get entity marks for ids", e))?
+    }
+
     /// The first line of each of `ids` that exists, from the `start_line`
     /// column (no `data` deserialisation) — for search results that carry an
     /// entity id but not its location.

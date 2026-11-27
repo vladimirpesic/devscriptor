@@ -33,14 +33,14 @@ tests to one thread per test binary, so that the build and the test suite fit a
 
 `devscriptor-cli`'s default features build the full binary: every language
 (`full-lang`), the embedding model download (`model-download`), the
-language-server integration (`lsp`) and the MCP server (`mcp`), with all 75 MCP
+language-server integration (`lsp`) and the MCP server (`mcp`), with all 76 MCP
 tools. Release builds use the defaults.
 
 | Build | MCP tools |
 | --- | ---: |
-| `cargo build -p devscriptor-cli` (the defaults) | 75 |
+| `cargo build -p devscriptor-cli` (the defaults) | 76 |
 | `cargo build -p devscriptor-mcp` — the development binary `devscriptor-mcp-standalone`, without the `lsp` feature | 32 |
-| `cargo build -p devscriptor-mcp --features lsp` | 75 |
+| `cargo build -p devscriptor-mcp --features lsp` | 76 |
 
 The core library builds with a subset of the languages through its `lang-*`
 features (`lang-rust`, `lang-python`, …) instead of `full-lang`, and without
@@ -115,7 +115,7 @@ extension test in VS Code.
 
 The release workflow (`.github/workflows/release.yml`) builds every archive on
 GitHub Actions, each on its own platform's runner, and checks each binary: it
-reports the version in `Cargo.toml`, its MCP server starts with all 75 tools, it
+reports the version in `Cargo.toml`, its MCP server starts with all 76 tools, it
 needs glibc 2.17 at most on Linux and macOS 11 on macOS, and it links no C++
 runtime or OpenSSL, nor on Windows the Visual C++ runtime. On Windows the binary
 also reserves the 8 MiB main-thread stack that Linux and macOS give a program
@@ -264,7 +264,7 @@ tool:
 ```bash
 devscriptor --version
 devscriptor --verbose mcp --no-daemon </dev/null 2>&1 >/dev/null | grep -m1 "Starting Unified MCP Server"
-# Starting Unified MCP Server (75 tools)
+# Starting Unified MCP Server (76 tools)
 ```
 
 `dist/` then holds the five archives, each with its `.sha256`:

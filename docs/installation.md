@@ -98,7 +98,7 @@ cargo build --release -p devscriptor-cli       # target/release/devscriptor
 ```
 
 `devscriptor-cli`'s default features build everything: the CLI, the language-server
-integration and all 75 MCP tools. See [Building](building.md) for portable release
+integration and all 76 MCP tools. See [Building](building.md) for portable release
 builds.
 
 ## Verifying the install
@@ -118,7 +118,7 @@ server:
 
 ```bash
 devscriptor --verbose mcp --no-daemon </dev/null 2>&1 >/dev/null | grep -m1 "Starting Unified MCP Server"
-# Starting Unified MCP Server (75 tools)
+# Starting Unified MCP Server (76 tools)
 ```
 
 ## First steps
@@ -198,7 +198,7 @@ Configure the agent's MCP client to start `devscriptor mcp`:
 
 The clients started in one directory share one Devscriptor process for that
 workspace. [MCP server](mcp.md) describes the server, the shared process and the
-75 tools.
+76 tools.
 
 ## Updating
 

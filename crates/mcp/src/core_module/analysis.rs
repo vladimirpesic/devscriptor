@@ -10,6 +10,14 @@ use crate::tools::{
     GetRelationshipsResponse, RelationshipInfo,
 };
 
+/// How many relationships away `get_change_impact` looks by default, and at
+/// most.
+const CHANGE_IMPACT_DEPTH: u64 = 3;
+const CHANGE_IMPACT_MAX_DEPTH: u64 = 6;
+/// How many entries of each list it gives by default, and at most.
+const CHANGE_IMPACT_LIMIT: u64 = 50;
+const CHANGE_IMPACT_MAX_LIMIT: u64 = 500;
+
 /// One end of a relationship, as `get_relationships` reports it.
 struct Endpoint {
     name: String,
@@ -382,6 +390,69 @@ impl CoreModule {
         };
 
         Ok((response, files))
+    }
+
+    /// `get_change_impact`: what a change touches — the entities the
+    /// changes since `base` change in the repository `path` is in, what
+    /// depends on them up to `depth` relationships away, and the tests among
+    /// both ([`devscriptor_core::analysis::change_impact`]).
+    pub(super) async fn get_change_impact(
+        &self,
+        arguments: Option<Value>,
+    ) -> Result<ToolResult, ToolError> {
+        use devscriptor_core::analysis::change_impact;
+        let args = arguments.unwrap_or_default();
+        let base = args.get("base").and_then(Value::as_str).unwrap_or("HEAD");
+        if !change_impact::is_revision(base) {
+            return Err(ToolError::InvalidParams(format!(
+                "base `{base}` is not a revision (HEAD, a branch, a tag, a commit) or a range \
+                 `a..b`"
+            )));
+        }
+        let bounded = |name: &str, default: u64, max: u64| -> Result<usize, ToolError> {
+            match args.get(name) {
+                None | Some(Value::Null) => Ok(default as usize),
+                Some(value) => value
+                    .as_u64()
+                    .filter(|n| (1..=max).contains(n))
+                    .map(|n| n as usize)
+                    .ok_or_else(|| {
+                        ToolError::InvalidParams(format!(
+                            "{name} {value} is not a whole number from 1 to {max}"
+                        ))
+                    }),
+            }
+        };
+        let limits = change_impact::ImpactLimits {
+            depth: bounded("depth", CHANGE_IMPACT_DEPTH, CHANGE_IMPACT_MAX_DEPTH)?,
+            limit: bounded("limit", CHANGE_IMPACT_LIMIT, CHANGE_IMPACT_MAX_LIMIT)?,
+        };
+        let path = args.get("path").and_then(Value::as_str).unwrap_or(".");
+        let directory = match self.scope_directory(path).await? {
+            Some(directory) => directory,
+            None => std::env::current_dir().map_err(|e| ToolError::Io(e.to_string()))?,
+        };
+        info!(
+            "Change impact of {base} in {} (depth {}, limit {})",
+            directory.display(),
+            limits.depth,
+            limits.limit
+        );
+        let top = change_impact::repository_top(&directory)
+            .await
+            .map_err(|e| ToolError::InvalidParams(e.to_string()))?;
+        let changes = change_impact::changed_files(&top, base)
+            .await
+            .map_err(|e| ToolError::InvalidParams(e.to_string()))?;
+        let impact =
+            change_impact::impact(self.state.database().as_ref(), &top, &changes, limits).await?;
+        let mut answer = serde_json::to_value(&impact)
+            .map_err(|e| ToolError::Internal(format!("failed to serialize tool response: {e}")))?;
+        if let Some(fields) = answer.as_object_mut() {
+            fields.insert("base".to_string(), json!(base));
+            fields.insert("repository".to_string(), json!(top.display().to_string()));
+        }
+        Ok(ToolResult::Success(answer))
     }
 
     pub(super) async fn find_dead_code(

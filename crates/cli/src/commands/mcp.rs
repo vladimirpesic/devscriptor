@@ -10,7 +10,7 @@ use devscriptor_mcp::daemon;
 ///
 /// The MCP server speaks JSON-RPC over **stdio** (there is no network port and no
 /// `--port` flag). The implementation lives inside this universal binary, so AI
-/// coding agents get the full **75-tool** unified server — 32 core (including 5
+/// coding agents get the full **76-tool** unified server — 33 core (including 5
 /// Context Graph and 3 watcher tools), 38 LSP, and 5 architecture tools — without
 /// a separate executable.
 ///

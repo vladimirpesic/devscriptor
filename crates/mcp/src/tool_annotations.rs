@@ -90,6 +90,7 @@ pub static TOOL_EFFECTS: &[ToolEffect] = &[
     // Entities and relationships.
     read("get_entity_details", "Entity details"),
     read("get_relationships", "Entity relationships"),
+    read("get_change_impact", "Change impact"),
     // Context graph.
     adds("add_context_note", "Add context note", false),
     read("search_context", "Search context notes"),
@@ -229,7 +230,7 @@ mod tests {
             );
             assert!(!effect.title.is_empty(), "{} has no title", effect.name);
         }
-        assert_eq!(TOOL_EFFECTS.len(), 75);
+        assert_eq!(TOOL_EFFECTS.len(), 76);
         for name in crate::core_module::TOOL_IDS.keys() {
             assert!(
                 effect_of(name).is_some(),

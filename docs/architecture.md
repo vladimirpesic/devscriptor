@@ -30,7 +30,7 @@ Devscriptor is a high-performance local code analysis platform built in Rust, pr
 
 - **26 languages** parsed with tree-sitter 0.27 — 26 grammar crates, 27 parsers, as the TypeScript crate provides both the TypeScript and TSX grammars — plus Markdown, a section at a time
 - **Two-phase indexing**: fast structural scan + optional semantic embedding
-- **75 MCP Tools** (32 Core + 38 LSP + 5 Architecture)
+- **76 MCP Tools** (33 Core + 38 LSP + 5 Architecture)
 - **Real-time watcher** (`core::watcher`) keeping the graph current on file changes via the incremental pipeline
 - **One process per workspace**: every MCP client of a workspace shares one index, watcher,
   embedding model and set of language servers (`devscriptor serve`)

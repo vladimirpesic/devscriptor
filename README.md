@@ -23,7 +23,7 @@ one MCP server — without sending your code anywhere.
 - **Language-server navigation**: definitions, references, hovers, call and type
   hierarchies, diagnostics and renames from 21 language servers, detected on your
   system or installed on request.
-- **An MCP server of 75 tools** for AI agents, shared by every client of a
+- **An MCP server of 76 tools** for AI agents, shared by every client of a
   workspace, with answers that re-check the files they name.
 - **A Context Graph**: long-term notes — decisions, standards, failures — linked to
   the code they are about.
@@ -75,7 +75,7 @@ configuration, the database, disk space and memory.
 | [Installation](docs/installation.md) | Installing, first steps, language servers, updating, uninstalling, troubleshooting |
 | [CLI](docs/cli.md) | Every `devscriptor` command and its options |
 | [Configuration](docs/configuration.md) | The project's `devscriptor.yaml` and the environment variables |
-| [MCP server](docs/mcp.md) | Running the server, the shared process per workspace, and the 75 tools |
+| [MCP server](docs/mcp.md) | Running the server, the shared process per workspace, and the 76 tools |
 | [Language servers](docs/lsp.md) | Detection, installation, lifecycle and configuration of the 21 language servers |
 | [Language server prerequisites](docs/lsp-servers.md) | What each language server needs to run |
 | [Context Graph](docs/context-graph.md) | Long-term notes for agents: tools, CLI, search, pruning |

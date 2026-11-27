@@ -9,7 +9,7 @@
 //!
 //! # Pre-computed tool list
 //!
-//! When the `rmcp-sdk` feature is enabled, the 32 core tools are additionally
+//! When the `rmcp-sdk` feature is enabled, the 33 core tools are additionally
 //! pre-computed as [`LazyLock<Vec<Tool>>`][`CORE_TOOLS`] so that `list_tools`
 //! never re-allocates their schemas on every call.
 
@@ -34,7 +34,7 @@ pub fn to_arc_map(value: &Value) -> Arc<serde_json::Map<String, serde_json::Valu
     }
 }
 
-/// Pre-computed list of the 32 core tools (rmcp SDK format).
+/// Pre-computed list of the 33 core tools (rmcp SDK format).
 ///
 /// This avoids rebuilding the tool list (and re-cloning every schema) on every
 /// `list_tools` call.  Schemas are already `LazyLock<Value>`; here we pay the
@@ -121,6 +121,11 @@ pub static CORE_TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             "get_relationships",
             "What an entity is linked to in the index — the calls it makes and gets, the types it uses, its supertypes and members — each edge once, with the file and line of both ends and the lines of the source a call or use is made on",
             to_arc_map(&GET_RELATIONSHIPS_SCHEMA),
+        ),
+        Tool::new(
+            "get_change_impact",
+            "What a change touches: the functions and classes the uncommitted changes (untracked files included), or the changes since `base`, change; what depends on them, up to `depth` relationships away; and the tests among both — the tests to run for the change",
+            to_arc_map(&GET_CHANGE_IMPACT_SCHEMA),
         ),
         Tool::new(
             "find_dead_code",
@@ -544,6 +549,35 @@ pub static GET_RELATIONSHIPS_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
     })
 });
 
+/// Schema for the `get_change_impact` tool.
+pub static GET_CHANGE_IMPACT_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
+    json!({
+        "type": "object",
+        "properties": {
+            "base": {
+                "type": "string",
+                "description": "The revision the working tree is compared with: HEAD (the default, the uncommitted changes), a branch, a tag, a commit; or a range `a..b`, the changes between two revisions"
+            },
+            "path": {
+                "type": "string",
+                "description": "A directory in the git repository; the workspace's project by default"
+            },
+            "depth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 6,
+                "description": "How many relationships away from a changed entity to look for what depends on it (3 by default)"
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "description": "The most entries of each list (50 by default)"
+            }
+        }
+    })
+});
+
 // ============================================================================
 // Analysis Schemas
 // ============================================================================
@@ -925,6 +959,7 @@ mod tests {
             ("generate_embeddings", &*GENERATE_EMBEDDINGS_SCHEMA),
             ("get_entity_details", &*GET_ENTITY_DETAILS_SCHEMA),
             ("get_relationships", &*GET_RELATIONSHIPS_SCHEMA),
+            ("get_change_impact", &*GET_CHANGE_IMPACT_SCHEMA),
             ("find_dead_code", &*FIND_DEAD_CODE_SCHEMA),
             ("analyze_complexity", &*ANALYZE_COMPLEXITY_SCHEMA),
             ("add_context_note", &*ADD_CONTEXT_NOTE_SCHEMA),

@@ -81,7 +81,7 @@ There are **9** note types:
 
 ## MCP Tools
 
-The Context Graph exposes **5** of the 32 core MCP tools. (The **9** above is the
+The Context Graph exposes **5** of the 33 core MCP tools. (The **9** above is the
 number of note *types*, not tools.) Parameters marked `*` are required.
 
 | Tool | Parameters | Description |
@@ -244,6 +244,6 @@ recalls those notes with `search_context`.
 
 ## Related Documentation
 
-- [MCP server](mcp.md) — all 75 MCP tools, including the 5 Context Graph tools
+- [MCP server](mcp.md) — all 76 MCP tools, including the 5 Context Graph tools
 - [CLI](cli.md) — the `context` CLI command
 - [Architecture](architecture.md) — database schema and system design

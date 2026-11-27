@@ -4,7 +4,7 @@
 //! 1. With eager startup, `Translator::spawn_applicable` returns
 //!    `Err(AllServersFailedToInit)` when every *applicable* language server fails
 //!    to spawn — e.g. a Rust project on a machine without `rust-analyzer`. The
-//!    server must still serve the 32 core tools and the 5 architecture tools,
+//!    server must still serve the 33 core tools and the 5 architecture tools,
 //!    among them `lsp_arch_setup`, which installs the missing server. The
 //!    servers here start eagerly, the mode in which that error arises; lazy
 //!    startup (the default) starts none.
@@ -178,8 +178,8 @@ fn mcp_server_starts_and_serves_all_75_tools_without_any_language_server() {
             .expect("tools/list must return a list");
         assert_eq!(
             tools.len(),
-            75,
-            "the server must advertise all 75 tools even with no language server running \
+            76,
+            "the server must advertise all 76 tools even with no language server running \
              ({startup} startup)"
         );
 

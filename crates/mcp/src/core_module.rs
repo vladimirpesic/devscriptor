@@ -284,6 +284,7 @@ pub(crate) static TOOL_IDS: std::sync::LazyLock<HashMap<&'static str, u8>> =
         m.insert("stop_watching", 29);
         m.insert("get_watch_status", 30);
         m.insert("generate_embeddings", 31);
+        m.insert("get_change_impact", 32);
         m
     });
 
@@ -580,6 +581,7 @@ fn reads_the_index(name: &str) -> bool {
             | "query_with_context"
             | "get_entity_details"
             | "get_relationships"
+            | "get_change_impact"
             | "get_file_context"
             | "describe_file"
             | "find_dead_code"
@@ -768,6 +770,7 @@ impl CoreModule {
             Some(29) => self.stop_watching(arguments).await,
             Some(30) => self.get_watch_status(arguments).await,
             Some(31) => self.generate_embeddings(arguments).await,
+            Some(32) => self.get_change_impact(arguments).await,
             _ => Err(ToolError::NotFound(name.to_string())),
         }
     }

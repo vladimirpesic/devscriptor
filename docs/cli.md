@@ -685,7 +685,7 @@ Launch the unified MCP server (JSON-RPC over stdio).
 devscriptor mcp
 ```
 
-This serves the 75-tool unified MCP server over stdin/stdout, by default through
+This serves the 76-tool unified MCP server over stdin/stdout, by default through
 the workspace's shared daemon; there is no TCP port and no `--port` flag.
 
 Configure an AI agent's MCP client with `command: "devscriptor"` and
