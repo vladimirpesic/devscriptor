@@ -492,24 +492,28 @@ impl FileFilter {
         }
     }
 
-    /// Check if a path is excluded by glob patterns.
+    /// Check if a path, relative to the scan root, is excluded by glob
+    /// patterns.
     #[must_use]
     pub fn is_excluded(&self, path: &Path) -> bool {
         self.ensure_globs_built();
         self.exclude_globs.read().is_match(path)
     }
 
-    /// Check if a file passes the filter
+    /// Check if the file at `path`, found by a scan of `root`, passes the
+    /// filter. The exclude patterns judge the path below `root` alone: a
+    /// project in `~/build/app` or under another project's `target/` is
+    /// scanned, not excluded whole.
     #[must_use]
-    pub fn matches(&self, path: &Path, size: u64) -> bool {
+    pub fn matches(&self, root: &Path, path: &Path, size: u64) -> bool {
         // Check file size first (no lock needed)
         if size > self.max_file_size {
             trace!("File too large: {}", path.display());
             return false;
         }
 
-        // Check glob exclusions against the file path
-        if self.is_excluded(path) {
+        // Check glob exclusions against the path below the scan root
+        if self.is_excluded(path.strip_prefix(root).unwrap_or(path)) {
             trace!("File excluded by glob pattern: {}", path.display());
             return false;
         }
@@ -707,12 +711,14 @@ impl FileScanner {
             let cancelled_clone = Arc::clone(&cancelled);
             let cancel_arc = cancel.clone();
             let filter_arc = Arc::new(filter);
+            let root_arc = Arc::new(root.clone());
 
             builder.build_parallel().run(|| {
                 let entries = Arc::clone(&entries_clone);
                 let cancelled = Arc::clone(&cancelled_clone);
                 let cancel = cancel_arc.clone();
                 let filter = Arc::clone(&filter_arc);
+                let root = Arc::clone(&root_arc);
 
                 Box::new(move |result| {
                     // Cooperative cancellation.
@@ -755,7 +761,7 @@ impl FileScanner {
                     let size = metadata.len();
                     // One `filter.matches()` call: it checks the excludes itself, so the
                     // globset runs once per file on the hot path.
-                    if !filter.matches(path, size) {
+                    if !filter.matches(&root, path, size) {
                         return ignore::WalkState::Continue;
                     }
 
@@ -842,7 +848,7 @@ impl FileScanner {
                 continue;
             };
             if !metadata.is_file()
-                || !self.filter.matches(path, metadata.len())
+                || !self.filter.matches(root, path, metadata.len())
                 || !self.reachable(root, path, &mut listings)
             {
                 continue;
@@ -889,7 +895,7 @@ impl FileScanner {
                 dirs.push(entry.into_path());
             } else if file_type.is_file() {
                 let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                if self.filter.matches(entry.path(), size) {
+                if self.filter.matches(root, entry.path(), size) {
                     files.push(entry.into_path());
                 }
             }
@@ -1203,6 +1209,39 @@ mod tests {
         );
     }
 
+    /// A project inside a folder named like an excluded one, `build` or
+    /// `target`, is scanned: only the path below the scan root is judged.
+    #[tokio::test]
+    async fn a_project_under_an_excluded_name_is_scanned() {
+        let dir = TempDir::new().unwrap();
+        let root = dunce::canonicalize(dir.path())
+            .unwrap()
+            .join("build/target/app");
+        for file in ["src/main.rs", "target/debug/gen.rs"] {
+            let path = root.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "x\n").unwrap();
+        }
+        let scanner = FileScanner::new(FileFilter::new());
+        let scanned: Vec<PathBuf> = scanner
+            .scan(&root, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
+        assert_eq!(scanned, [root.join("src/main.rs")]);
+        let candidates = [root.join("src/main.rs"), root.join("target/debug/gen.rs")];
+        let checked: Vec<PathBuf> = scanner
+            .entries_for(&root, &candidates)
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
+        assert_eq!(checked, [root.join("src/main.rs")]);
+        let (_, files) = scanner.tree(&root, &root.join("src")).unwrap();
+        assert_eq!(files, [root.join("src/main.rs")]);
+    }
+
     /// The heads documentation generators write, from Javadoc's old comment
     /// to MkDocs' tag with its attributes the other way round, are told from
     /// a page written by hand or built by a site generator.
@@ -1318,9 +1357,14 @@ mod tests {
         filter.add_extension("rs");
         filter.add_exclude("target");
 
-        assert!(filter.matches(Path::new("/test.rs"), 100));
-        assert!(!filter.matches(Path::new("/target/test.rs"), 100));
-        assert!(!filter.matches(Path::new("/test.rs"), 100 * 1024 * 1024 + 1)); // Too large
+        let root = Path::new("/");
+        assert!(filter.matches(root, Path::new("/test.rs"), 100));
+        assert!(!filter.matches(root, Path::new("/target/test.rs"), 100));
+        assert!(!filter.matches(root, Path::new("/test.rs"), 100 * 1024 * 1024 + 1)); // Too large
+        // Only the path below the scan root is judged.
+        let root = Path::new("/home/u/build/app");
+        assert!(filter.matches(root, Path::new("/home/u/build/app/src/main.rs"), 100));
+        assert!(!filter.matches(root, Path::new("/home/u/build/app/target/main.rs"), 100));
 
         // Test that extensions not in the include list are rejected
         let ext = Path::new("/test.py")

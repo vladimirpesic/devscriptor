@@ -28,7 +28,9 @@ database:
 
 - **`scan.exclude`** comes on top of the excludes every scan applies
   (`node_modules`, `target`, `.git`, `dist`, `build`, `vendor`, … — see
-  [Security](security.md#file-access) for the full list).
+  [Security](security.md#file-access) for the full list). They are matched
+  against paths below the scanned root: a project kept in a folder named
+  `build` or `target` is scanned.
 - **`scan.cross_file`** decides which references resolve across files: `deep`
   resolves every one; `light` every one but calls, which link only to a definition
   in the caller's file; `none` resolves within each file only; `auto`, the default,

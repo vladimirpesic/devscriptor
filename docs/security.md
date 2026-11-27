@@ -76,8 +76,9 @@ Devscriptor reads only what it needs to parse, and only inside the path you pass
 2. **A built-in exclude list** skips `node_modules`, `.git`, `target`,
    `__pycache__`, `.venv`, `venv`, `.env`, `.idea`, `.vscode`, `dist`, `build`,
    `.pytest_cache`, `.mypy_cache`, `.tox`, `vendor`, `third_party`, `*.min.js`,
-   `*.min.css` and `*.map`. Add your own with `--exclude` (CLI), `exclude_patterns`
-   (MCP) or `scan.exclude` in `devscriptor.yaml`.
+   `*.min.css` and `*.map`, below the path scanned: the folders above it do not
+   count. Add your own with `--exclude` (CLI), `exclude_patterns` (MCP) or
+   `scan.exclude` in `devscriptor.yaml`.
 3. **An extension allow-list**: only files whose extension is one of the supported
    source extensions are opened at all.
 4. **Generated documentation is skipped**: an HTML page whose head names a

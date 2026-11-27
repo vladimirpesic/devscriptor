@@ -382,8 +382,8 @@ as `find_dead_code`'s and `analyze_complexity`'s are.
 
 `extensions` is a **whitelist** of file extensions, with or without a leading dot.
 Omit it to scan what the project's `devscriptor.yaml` sets in `scan.include`, else
-every supported language. `exclude_patterns` are globs matched against file paths,
-applied on top of the built-in excludes (`node_modules`, `target`, `.git`, `vendor`,
+every supported language. `exclude_patterns` are globs matched against file paths
+below the scanned root, applied on top of the built-in excludes (`node_modules`, `target`, `.git`, `vendor`,
 `dist`, `build`, …); omitted, the project's `scan.exclude` apply. The scans take the
 rest of the project's scope too (size limit, ignore files, cross-file mode): see
 [Project configuration](#project-configuration).
