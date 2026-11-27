@@ -243,7 +243,10 @@ first request reliable:
   waits for the server's background indexing to settle before the first semantic
   request. A newly started server is also probed with `documentSymbol` until it has
   loaded the file, so the first `get_hover` or `get_definition` returns real results
-  rather than the empty answer of a server still indexing.
+  rather than the empty answer of a server still indexing. Work that begins within
+  a second of a save Devscriptor told the server of is the server's check of the
+  file — rust-analyzer's `cargo check` — which changes none of its answers and can
+  take minutes: requests do not wait for it.
 - **Capability-aware dispatch.** Document-symbol and workspace-symbol requests are
   checked against the capabilities the server advertised: a server without them
   yields *"the <language> language server does not support …"*, and workspace-symbol
@@ -258,7 +261,11 @@ first request reliable:
   changes (typescript-language-server, clangd, gopls, jdtls) have them collected;
   `get_diagnostics` waits for the pushes to settle. A file changed on disk since
   the server had it is sent to it again first, and the pushes waited for are
-  those for its text now.
+  those for its text now. A server that answers diagnostics on request and takes
+  saves — rust-analyzer — is told the file is saved, once for each text of it,
+  and the check that starts is waited for: rust-analyzer answers with its own
+  analysis and pushes what `cargo check` finds, type errors among them, and
+  `get_diagnostics` reports both.
 
 And these keep a session going:
 
@@ -314,11 +321,12 @@ A server started later reads the files as they are.
   the project's own `target/`, and never holds the project's build lock: a
   `cargo build` run while it indexes does not wait. The cost is a second set of
   build artifacts in that directory. Its check of a saved file, `cargo check`,
-  runs there too when `get_diagnostics` tells it a file is saved. Its cargo resolves each workspace into
-  `target/rust-analyzer/Cargo.lock` (`CARGO_RESOLVER_LOCKFILE_PATH`, Rust 1.97 or
-  newer), a copy of the project's `Cargo.lock` where there is one, so a workspace
-  without one gets none and an outdated one is not rewritten. A lock file the
-  user's environment names is left as it is.
+  runs there too when `get_diagnostics` tells it a file is saved. Its cargo
+  resolves each workspace into `target/rust-analyzer/Cargo.lock`
+  (`CARGO_RESOLVER_LOCKFILE_PATH`, Rust 1.97 or newer), a copy of the project's
+  `Cargo.lock` where there is one, so a workspace without one gets none and an
+  outdated one is not rewritten. A lock file the user's environment names is left
+  as it is.
 - **jdtls** is started with `-Djava.import.generatesMetadataFilesAtProjectRoot=false`,
   so the Eclipse metadata of a project it imports (`.project`, `.classpath`,
   `.settings/`) stays in its own workspace under `~/.cache/jdtls/`, and with

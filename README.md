@@ -20,9 +20,13 @@ one MCP server — without sending your code anywhere.
 - **Hybrid search**: FTS5 keyword search right after a scan, fused with semantic
   search over `jinaai/jina-embeddings-v2-base-code` vectors computed on your
   machine.
+- **Change impact**: what an uncommitted change or a range of commits touches —
+  the entities it changes, what depends on them, and the tests to run for it —
+  read from git and the graph.
 - **Language-server navigation**: definitions, references, hovers, call and type
-  hierarchies, diagnostics and renames from 21 language servers, detected on your
-  system or installed on request.
+  hierarchies, diagnostics (a Rust file's `cargo check` errors among them) and
+  renames from 21 language servers, detected on your system or installed on
+  request.
 - **An MCP server of 76 tools** for AI agents, shared by every client of a
   workspace, with answers that re-check the files they name.
 - **A Context Graph**: long-term notes — decisions, standards, failures — linked to

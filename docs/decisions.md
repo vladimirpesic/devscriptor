@@ -22,6 +22,8 @@ decision here is a change of design, not a fix.
   - [MCP scans run the full pipeline](#mcp-scans-run-the-full-pipeline)
   - [`definition` and `references` ask a live language server](#definition-and-references-ask-a-live-language-server)
   - [Language servers start on demand](#language-servers-start-on-demand)
+  - [Diagnostics include the check a save starts](#diagnostics-include-the-check-a-save-starts)
+  - [Change impact reads the change from git](#change-impact-reads-the-change-from-git)
   - [One Devscriptor process per workspace](#one-devscriptor-process-per-workspace)
   - [The VS Code extension is an MCP client](#the-vs-code-extension-is-an-mcp-client)
   - [One project configuration file, of settings that act](#one-project-configuration-file-of-settings-that-act)
@@ -321,6 +323,38 @@ is measured by the client — no request, notification or readiness wait in prog
 and none for the timeout — never by a timestamp a long request could outlive. Idle
 and cap stops are not crashes, and do not use up the three restarts in five minutes
 a crashing server gets.
+
+### Diagnostics include the check a save starts
+
+`get_diagnostics` tells a server that answers diagnostics on request and takes
+saves that the file is saved, once for each text of it, waits for the check that
+starts (`wait_ms`, 30 s by default), and reports what the server pushes with what
+it answers. Work that begins within a second of such a save is the server's
+check; requests other than `get_diagnostics` do not wait for it. A check still
+running when the wait ends leaves its findings out, and the answer says
+`checking`.
+
+**Why:** rust-analyzer's answer holds its own analysis only. The errors
+`cargo check` finds — type errors, unmet trait bounds, borrow errors — it pushes,
+and only after a save, so without one an agent never saw them. The files on disk
+are saved, so saying so is true. A check can take minutes on a large workspace
+and changes none of the server's other answers, so waiting for it before every
+hover would only slow them; and a missing check is not a clean file, which
+`checking` keeps an agent from taking it for.
+
+### Change impact reads the change from git
+
+`get_change_impact` takes the change from `git diff` against a revision (the
+working tree against `HEAD` by default, untracked files included) or between two,
+maps each changed line to the innermost indexed entity holding it, and walks the
+graph's edges backwards from those, tests apart.
+
+**Why:** git knows what changed relative to a commit, which a scan's checksums
+cannot say: the index holds the files as they are, not as they were. The innermost
+entity — the method, not its class — keeps one changed line from naming everything
+around it. Modules, namespaces and documentation sections are not walked: a
+module's imports would reach every file that imports it, burying the entities that
+use what changed.
 
 ### One Devscriptor process per workspace
 

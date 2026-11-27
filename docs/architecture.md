@@ -91,11 +91,13 @@ crates/core/src/
 │   ├── complexity.rs
 │   ├── clone_detection.rs
 │   ├── call_graph.rs
+│   ├── change_impact.rs        # What a git change touches, its dependents and tests
 │   ├── code_smells.rs
 │   ├── cross_reference.rs
 │   ├── cross_file.rs
 │   ├── architectural_patterns.rs
-│   └── refactoring.rs
+│   ├── refactoring.rs
+│   └── test_code.rs            # Whether code is a test, by its file, name or decorator
 ├── config/                     # The project configuration (devscriptor.yaml), templates, stack detection
 ├── context_graph/              # Notes, entity/concept links, note search
 ├── graph/
@@ -478,9 +480,10 @@ has: after `scan_codebase` and `start_analysis`, and at a tool call, at most eve
 
 A watcher lags by its debounce and its re-index, and it may poll, fail, or be
 off. So the MCP tools that answer from the index check their own answers
-(`crates/mcp/src/freshness.rs`): the query tools, the analyses of the whole index
-(`find_dead_code`, `analyze_complexity`, `analyze_code`, `get_statistics`), and,
-in the LSP tools, the `name` resolution and the calls and uses the index adds.
+(`crates/mcp/src/freshness.rs`): the query tools, `get_change_impact`, the
+analyses of the whole index (`find_dead_code`, `analyze_complexity`,
+`analyze_code`, `get_statistics`), and, in the LSP tools, the `name` resolution
+and the calls and uses the index adds.
 `freshness::fresh_answer` first waits for the server's watcher to handle what it
 has seen (`DevscriptorServerState::settle_watcher`: at most its debounce and 5 s;
 the answer says `reindex_pending` when the wait ran out). `CoreModule::handle_tool`

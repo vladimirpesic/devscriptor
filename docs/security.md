@@ -10,6 +10,7 @@ loads anything, what it reads, who may talk to its server, and where it uses
 - [File access](#file-access)
 - [The shared server's endpoint](#the-shared-servers-endpoint)
 - [Language servers](#language-servers)
+- [Git](#git)
 - [Memory safety](#memory-safety)
 - [Dependencies](#dependencies)
 - [Running Devscriptor safely](#running-devscriptor-safely)
@@ -125,6 +126,15 @@ They are found on your system or in editor extensions, installed on request
 run, so it is ignored until you trust its exact content with
 `devscriptor lsp trust` (see [Language servers](lsp.md#configuration-file)).
 Install language servers only from sources you trust.
+
+## Git
+
+`get_change_impact` runs `git` in the repository it is asked about, to read the
+change. It runs it with the repository's fsmonitor off and without external diff
+or textconv programs, never asking for credentials and taking no optional lock,
+so a repository's config makes it run no program of its own, and it never writes
+to the repository. The revision it is given must be a name or a range, with no
+blanks, never an option.
 
 ## Memory safety
 
